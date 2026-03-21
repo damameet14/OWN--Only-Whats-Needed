@@ -1,0 +1,116 @@
+[
+  {
+    "name": "Classic White",
+    "description": "Clean white text with black outline",
+    "style": {
+      "font_family": "Noto Sans Devanagari",
+      "font_size": 48,
+      "text_color": "#FFFFFF",
+      "outline_color": "#000000",
+      "outline_width": 2,
+      "shadow_color": "#80000000",
+      "shadow_offset_x": 2,
+      "shadow_offset_y": 2,
+      "bg_color": "",
+      "bg_padding": 8,
+      "bold": false,
+      "italic": false,
+      "alignment": "center"
+    }
+  },
+  {
+    "name": "Bold Yellow",
+    "description": "Bold yellow text for high visibility",
+    "style": {
+      "font_family": "Mukta",
+      "font_size": 52,
+      "text_color": "#FFD700",
+      "outline_color": "#000000",
+      "outline_width": 3,
+      "shadow_color": "#80000000",
+      "shadow_offset_x": 2,
+      "shadow_offset_y": 2,
+      "bg_color": "",
+      "bg_padding": 8,
+      "bold": true,
+      "italic": false,
+      "alignment": "center"
+    }
+  },
+  {
+    "name": "Neon Glow",
+    "description": "Cyan neon text with glow effect",
+    "style": {
+      "font_family": "Baloo 2",
+      "font_size": 46,
+      "text_color": "#00FFFF",
+      "outline_color": "#0066FF",
+      "outline_width": 3,
+      "shadow_color": "#8000FFFF",
+      "shadow_offset_x": 0,
+      "shadow_offset_y": 0,
+      "bg_color": "",
+      "bg_padding": 8,
+      "bold": false,
+      "italic": false,
+      "alignment": "center"
+    }
+  },
+  {
+    "name": "Minimal Dark",
+    "description": "Dark background box with white text",
+    "style": {
+      "font_family": "Noto Sans Devanagari",
+      "font_size": 40,
+      "text_color": "#FFFFFF",
+      "outline_color": "",
+      "outline_width": 0,
+      "shadow_color": "",
+      "shadow_offset_x": 0,
+      "shadow_offset_y": 0,
+      "bg_color": "#CC000000",
+      "bg_padding": 12,
+      "bold": false,
+      "italic": false,
+      "alignment": "center"
+    }
+  },
+  {
+    "name": "Cinematic",
+    "description": "Elegant style with subtle shadow",
+    "style": {
+      "font_family": "Noto Sans Devanagari",
+      "font_size": 50,
+      "text_color": "#F0E6D3",
+      "outline_color": "#1A1A1A",
+      "outline_width": 2,
+      "shadow_color": "#80000000",
+      "shadow_offset_x": 3,
+      "shadow_offset_y": 3,
+      "bg_color": "",
+      "bg_padding": 8,
+      "bold": false,
+      "italic": true,
+      "alignment": "center"
+    }
+  },
+  {
+    "name": "Karaoke Pop",
+    "description": "Bright magenta for karaoke-style segments",
+    "style": {
+      "font_family": "Mukta",
+      "font_size": 54,
+      "text_color": "#FF1493",
+      "outline_color": "#FFFFFF",
+      "outline_width": 3,
+      "shadow_color": "",
+      "shadow_offset_x": 0,
+      "shadow_offset_y": 0,
+      "bg_color": "",
+      "bg_padding": 8,
+      "bold": true,
+      "italic": false,
+      "alignment": "center"
+    }
+  }
+]
