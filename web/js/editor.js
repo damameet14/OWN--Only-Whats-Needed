@@ -68,7 +68,15 @@ async function loadProject(id) {
         timeline = new SubtitleTimeline(timelineCanvas, timelineWrapper);
 
         if (subtitleTrack) {
-            timeline.setData(subtitleTrack.segments, project.video_duration, project.id);
+            // BACKWARDS COMPATIBILITY: Initialize multi-track segments if missing
+            if (!subtitleTrack.video_segments || subtitleTrack.video_segments.length === 0) {
+                subtitleTrack.video_segments = [{start: 0, end: project.video_duration, source_start: 0, source_end: project.video_duration}];
+            }
+            if (!subtitleTrack.audio_segments || subtitleTrack.audio_segments.length === 0) {
+                subtitleTrack.audio_segments = [{start: 0, end: project.video_duration, source_start: 0, source_end: project.video_duration}];
+            }
+
+            timeline.setData(subtitleTrack, project.video_duration, project.id);
             populateSegments(subtitleTrack.segments);
             populateFullText(subtitleTrack.segments);
             applyTrackToControls(subtitleTrack);
@@ -122,8 +130,12 @@ async function loadProject(id) {
             video.currentTime = time;
         };
 
-        timeline.onSelect = (idx) => {
-            highlightSegment(idx);
+        timeline.onSelect = (sel) => {
+            if (sel && sel.track === 'text') {
+                highlightSegment(sel.index);
+            } else {
+                highlightSegment(-1);
+            }
         };
 
     } catch (err) {
@@ -238,41 +250,52 @@ function initTimelineControls() {
         btnSplit.addEventListener('click', () => {
             if (!timeline || !subtitleTrack) return;
             const time = timeline.currentTime;
+            let splitOccurred = false;
             
-            // Find segment containing time
-            const sIdx = subtitleTrack.segments.findIndex(seg => {
-                const start = seg.words?.[0]?.start_time || 0;
-                const end = seg.words?.[seg.words.length - 1]?.end_time || 0;
-                return time > start && time < end;
-            });
-
-            if (sIdx !== -1) {
-                const seg = subtitleTrack.segments[sIdx];
-                // Find word index where split happens
-                const wIdx = seg.words.findIndex(w => (w.start_time <= time && w.end_time >= time) || w.start_time >= time);
+            // For ALL tracks (video, audio, text), split the segment that intersects with `time`
+            const splitTrackSegments = (trackName, segList) => {
+                if (!segList) return;
+                const sIdx = segList.findIndex(seg => {
+                    const start = (trackName === 'text') ? (seg.words?.[0]?.start_time || 0) : seg.start;
+                    const end = (trackName === 'text') ? (seg.words?.[seg.words.length - 1]?.end_time || 0) : seg.end;
+                    return time > start && time < end; // Strict inequality to avoid splitting exactly at borders
+                });
                 
-                if (wIdx > 0 && wIdx < seg.words.length) { 
-                    const seg1 = { 
-                        ...seg, 
-                        words: seg.words.slice(0, wIdx), 
-                        text: seg.words.slice(0, wIdx).map(w=>w.word).join(' ') 
-                    };
-                    const seg2 = { 
-                        ...seg, 
-                        words: seg.words.slice(wIdx), 
-                        text: seg.words.slice(wIdx).map(w=>w.word).join(' ') 
-                    };
-                    subtitleTrack.segments.splice(sIdx, 1, seg1, seg2);
-                    timeline.setData(subtitleTrack.segments, project.video_duration, project.id);
-                    populateSegments(subtitleTrack.segments);
-                    populateFullText(subtitleTrack.segments);
-                    autoSave();
-                    showToast('Segment split');
-                } else {
-                    showToast('Cannot split at this exact frame', 'error');
+                if (sIdx !== -1) {
+                    const seg = segList[sIdx];
+                    if (trackName === 'text') {
+                        if (!seg.words || seg.words.length < 2) return;
+                        let wIdx = seg.words.findIndex(w => (w.start_time <= time && w.end_time >= time) || w.start_time >= time);
+                        if (wIdx <= 0 || wIdx >= seg.words.length) return; // Cannot split if on edges
+                        
+                        const seg1 = { ...seg, words: seg.words.slice(0, wIdx) };
+                        const seg2 = { ...seg, words: seg.words.slice(wIdx) };
+                        segList.splice(sIdx, 1, seg1, seg2);
+                        splitOccurred = true;
+                    } else {
+                        // MediaSegment
+                        const ratio = (time - seg.start) / (seg.end - seg.start);
+                        const sourceTime = seg.source_start + (seg.source_end - seg.source_start) * ratio;
+                        const seg1 = { ...seg, end: time, source_end: sourceTime };
+                        const seg2 = { ...seg, start: time, source_start: sourceTime };
+                        segList.splice(sIdx, 1, seg1, seg2);
+                        splitOccurred = true;
+                    }
                 }
+            };
+
+            splitTrackSegments('video', subtitleTrack.video_segments);
+            splitTrackSegments('audio', subtitleTrack.audio_segments);
+            splitTrackSegments('text', subtitleTrack.segments);
+            
+            if (splitOccurred) {
+                timeline.setData(subtitleTrack, project.video_duration, project.id);
+                populateSegments(subtitleTrack.segments);
+                populateFullText(subtitleTrack.segments);
+                autoSave();
+                showToast('Tracks split at playhead');
             } else {
-                showToast('Playhead must be over a segment to split', 'error');
+                showToast('No segments span across the playhead to split', 'error');
             }
         });
     }
@@ -281,16 +304,100 @@ function initTimelineControls() {
         btnTrim.addEventListener('click', () => {
             if (!timeline || !subtitleTrack) return;
             
-            if (timeline.selectedIndex !== -1 && timeline.selectedIndex < subtitleTrack.segments.length) {
-                subtitleTrack.segments.splice(timeline.selectedIndex, 1);
-                timeline.selectedIndex = -1;
-                timeline.setData(subtitleTrack.segments, project.video_duration, project.id);
+            if (timeline.selectionRange) {
+                const { start, end } = timeline.selectionRange;
+                if (end <= start) return;
+                const cutDuration = end - start;
+                
+                // Helper to trim a media segment list
+                const trimMediaList = (segList) => {
+                    const newList = [];
+                    for (let seg of segList) {
+                        if (seg.end <= start) {
+                            newList.push(seg);
+                        } else if (seg.start >= end) {
+                            // Shift left
+                            newList.push({ ...seg, start: seg.start - cutDuration, end: seg.end - cutDuration });
+                        } else {
+                            // Intersects
+                            if (seg.start < start) {
+                                // Keep left part
+                                const r1 = (start - seg.start) / (seg.end - seg.start);
+                                newList.push({ ...seg, end: start, source_end: seg.source_start + (seg.source_end - seg.source_start) * r1 });
+                            }
+                            if (seg.end > end) {
+                                // Keep right part, shifted left
+                                const r2 = (end - seg.start) / (seg.end - seg.start);
+                                newList.push({ ...seg, start: start, end: seg.end - cutDuration, source_start: seg.source_start + (seg.source_end - seg.source_start) * r2 });
+                            }
+                        }
+                    }
+                    return newList;
+                };
+
+                subtitleTrack.video_segments = trimMediaList(subtitleTrack.video_segments);
+                subtitleTrack.audio_segments = trimMediaList(subtitleTrack.audio_segments);
+
+                // Helper to trim text list
+                const newTextList = [];
+                for (let seg of subtitleTrack.segments) {
+                    const sStart = seg.words?.[0]?.start_time || 0;
+                    const sEnd = seg.words?.[seg.words.length - 1]?.end_time || 0;
+                    
+                    if (sEnd <= start) {
+                        newTextList.push(seg);
+                    } else if (sStart >= end) {
+                        // Shift words left
+                        const newSeg = { ...seg, words: seg.words.map(w => ({...w, start_time: w.start_time - cutDuration, end_time: w.end_time - cutDuration})) };
+                        newTextList.push(newSeg);
+                    } else {
+                        // Word by word trimming
+                        const newWords = [];
+                        for (let w of seg.words) {
+                            if (w.end_time <= start) {
+                                newWords.push(w);
+                            } else if (w.start_time >= end) {
+                                newWords.push({...w, start_time: w.start_time - cutDuration, end_time: w.end_time - cutDuration});
+                            }
+                            // Else drop words inside cut area
+                        }
+                        if (newWords.length > 0) {
+                            newTextList.push({...seg, words: newWords});
+                        }
+                    }
+                }
+                subtitleTrack.segments = newTextList;
+                
+                project.video_duration = Math.max(0, project.video_duration - cutDuration);
+                timeline.duration = project.video_duration;
+                timeline.selectionRange = null;
+                timeline.selectedIndex = { track: null, index: -1 };
+                
+                timeline.setData(subtitleTrack, project.video_duration, project.id);
                 populateSegments(subtitleTrack.segments);
                 populateFullText(subtitleTrack.segments);
                 autoSave();
-                showToast('Segment deleted');
+                showToast('Selection range trimmed');
+            } else if (timeline.selectedIndex && timeline.selectedIndex.index !== -1) {
+                // Delete the specific selected segment completely
+                const track = timeline.selectedIndex.track;
+                const idx = timeline.selectedIndex.index;
+                let targetList = null;
+                if (track === 'video') targetList = subtitleTrack.video_segments;
+                else if (track === 'audio') targetList = subtitleTrack.audio_segments;
+                else if (track === 'text') targetList = subtitleTrack.segments;
+
+                if (targetList && idx < targetList.length) {
+                    targetList.splice(idx, 1);
+                    timeline.selectedIndex = { track: null, index: -1 };
+                    timeline.setData(subtitleTrack, project.video_duration, project.id);
+                    populateSegments(subtitleTrack.segments);
+                    populateFullText(subtitleTrack.segments);
+                    autoSave();
+                    showToast(`${track} Segment deleted`);
+                }
             } else {
-                showToast('Please select a segment to delete first', 'error');
+                showToast('Please Shift+Drag a time range or click a segment to trim', 'error');
             }
         });
     }
@@ -330,6 +437,10 @@ function populateSegments(segments) {
             const seg = segments[idx];
             const startTime = seg.words?.[0]?.start_time || 0;
             document.getElementById('video-player').currentTime = startTime;
+            if (timeline) {
+                timeline.selectedIndex = { track: 'text', index: idx };
+                timeline.draw();
+            }
             highlightSegment(idx);
         });
     });

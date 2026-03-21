@@ -7,20 +7,32 @@ class SubtitleTimeline {
         this.canvas = canvasEl;
         this.wrapper = wrapperEl;
         this.ctx = canvasEl.getContext('2d');
-        this.segments = [];
+        this.segments = { video: [], audio: [], text: [] };
         this.duration = 0;
         this.currentTime = 0;
         this.zoom = 1;
         this.scrollOffset = 0;
-        this.selectedIndex = -1;
+        this.selectedIndex = { track: null, index: -1 };
+        this.selectionRange = null; // { start: float, end: float }
         this.onSeek = null;
         this.onSelect = null;
 
         this.setupEvents();
     }
 
-    setData(segments, duration, projectId = null) {
-        this.segments = segments || [];
+    setData(segmentsData, duration, projectId = null) {
+        // segmentsData should have { video: [], audio: [], text: [] }
+        if (Array.isArray(segmentsData)) {
+            // Fallback for old calls
+            this.segments = { video: [], audio: [], text: segmentsData };
+        } else {
+            this.segments = {
+                video: segmentsData.video_segments || [],
+                audio: segmentsData.audio_segments || [],
+                text: segmentsData.segments || []
+            };
+        }
+        
         this.duration = duration || 0;
         this.projectId = projectId;
         
@@ -48,7 +60,9 @@ class SubtitleTimeline {
     }
 
     setupEvents() {
-        let isDragging = false;
+        let isDraggingPlayhead = false;
+        let isDraggingSelection = false;
+        let selectionStartPointer = 0;
 
         const handleInteraction = (e, isDown, forceSeek = false) => {
             const rect = this.canvas.getBoundingClientRect();
@@ -57,55 +71,102 @@ class SubtitleTimeline {
 
             const pxPerSec = this.getPixelsPerSecond();
             const trackH = (this.canvas.height - 32) / 3;
-            const subTrackY = 24 + trackH * 2;
+            const vidY = 24;
+            const audY = 24 + trackH;
+            const subY = 24 + trackH * 2;
             const headerW = 85;
 
-            // Handle segment selection only on mouse down
-            if (isDown && y >= subTrackY && y <= subTrackY + trackH && this.segments.length > 0) {
-                for (let i = 0; i < this.segments.length; i++) {
-                    const seg = this.segments[i];
-                    const startTime = seg.words?.[0]?.start_time || 0;
-                    const endTime = seg.words?.[seg.words.length - 1]?.end_time || 0;
-                    const sx = headerW + startTime * pxPerSec - this.scrollOffset;
-                    const sw = (endTime - startTime) * pxPerSec;
+            // Handle segment selection only on mouse down (if not shift key)
+            if (isDown && !e.shiftKey) {
+                let clickedTrack = null;
+                let clickedSegList = null;
+                
+                if (y >= vidY && y < audY) { clickedTrack = 'video'; clickedSegList = this.segments.video; }
+                else if (y >= audY && y < subY) { clickedTrack = 'audio'; clickedSegList = this.segments.audio; }
+                else if (y >= subY && y <= subY + trackH) { clickedTrack = 'text'; clickedSegList = this.segments.text; }
 
-                    if (x >= sx && x <= sx + sw) {
-                        this.selectedIndex = i;
-                        if (this.onSelect) this.onSelect(i);
-                        if (this.onSeek) this.onSeek(startTime);
-                        this.draw();
-                        return; // Clicked segment, don't drag playhead
+                if (clickedSegList && clickedSegList.length > 0) {
+                    for (let i = 0; i < clickedSegList.length; i++) {
+                        const seg = clickedSegList[i];
+                        const startTime = (clickedTrack === 'text') ? (seg.words?.[0]?.start_time || 0) : seg.start;
+                        const endTime = (clickedTrack === 'text') ? (seg.words?.[seg.words.length - 1]?.end_time || 0) : seg.end;
+                        const sx = headerW + startTime * pxPerSec - this.scrollOffset;
+                        const sw = (endTime - startTime) * pxPerSec;
+
+                        if (x >= sx && x <= sx + sw) {
+                            this.selectedIndex = { track: clickedTrack, index: i };
+                            if (this.onSelect) this.onSelect({ track: clickedTrack, index: i });
+                            if (this.onSeek) this.onSeek(startTime);
+                            this.draw();
+                            return; // Clicked segment, don't drag playhead
+                        }
                     }
+                }
+                
+                // Clear selection if clicked blank space in tracks
+                if (y >= 24) {
+                    this.selectedIndex = { track: null, index: -1 };
+                    if (this.onSelect) this.onSelect({ track: null, index: -1 });
                 }
             }
 
-            // Scrubbing playhead
-            const seekTime = Math.max(0, Math.min((x - headerW + this.scrollOffset) / pxPerSec, this.duration));
-            const now = Date.now();
-            if (this.onSeek && (forceSeek || !this.lastSeek || now - this.lastSeek > 100)) {
-                this.lastSeek = now;
-                this.onSeek(seekTime);
+            // Scrubbing playhead (if not shift-dragging)
+            if (!isDraggingSelection) {
+                const seekTime = Math.max(0, Math.min((x - headerW + this.scrollOffset) / pxPerSec, this.duration));
+                const now = Date.now();
+                if (this.onSeek && (forceSeek || !this.lastSeek || now - this.lastSeek > 100)) {
+                    this.lastSeek = now;
+                    this.onSeek(seekTime);
+                }
+                this.selectionRange = null; // Clear selection area when seeking normally
             }
         };
 
         this.canvas.addEventListener('mousedown', (e) => {
             const rect = this.canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
+            
             if (y >= 24) { // Below ruler
-                isDragging = true;
-                handleInteraction(e, true, true);
+                if (e.shiftKey) {
+                    // Start selection range
+                    const pxPerSec = this.getPixelsPerSecond();
+                    const headerW = 85;
+                    const time = Math.max(0, Math.min((x - headerW + this.scrollOffset) / pxPerSec, this.duration));
+                    isDraggingSelection = true;
+                    selectionStartPointer = time;
+                    this.selectionRange = { start: time, end: time };
+                    this.draw();
+                } else {
+                    isDraggingPlayhead = true;
+                    handleInteraction(e, true, true);
+                }
             }
         });
 
         window.addEventListener('mousemove', (e) => {
-            if (isDragging) {
+            if (isDraggingSelection) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const pxPerSec = this.getPixelsPerSecond();
+                const headerW = 85;
+                const time = Math.max(0, Math.min((x - headerW + this.scrollOffset) / pxPerSec, this.duration));
+                this.selectionRange = { 
+                    start: Math.min(selectionStartPointer, time), 
+                    end: Math.max(selectionStartPointer, time) 
+                };
+                this.draw();
+            } else if (isDraggingPlayhead) {
                 handleInteraction(e, false);
             }
         });
 
         window.addEventListener('mouseup', (e) => {
-            if (isDragging) {
-                isDragging = false;
+            if (isDraggingSelection) {
+                isDraggingSelection = false;
+            }
+            if (isDraggingPlayhead) {
+                isDraggingPlayhead = false;
                 handleInteraction(e, false, true);
             }
         });
@@ -233,33 +294,60 @@ class SubtitleTimeline {
         const trackY = 24;
         const totalTrackH = h - 32;
         const trackH = totalTrackH / 3;
+        const contentWidth = this.duration * pxPerSec;
+
+        // Helper to draw segment blocks for Video and Audio
+        const drawMediaSegments = (segments, y, color, isSelectedTrack) => {
+            if (!segments) return;
+            for (let i = 0; i < segments.length; i++) {
+                const seg = segments[i];
+                const x = startX + seg.start * pxPerSec;
+                const sw = Math.max((seg.end - seg.start) * pxPerSec, 2);
+                
+                if (x > w || x + sw < headerW) continue; // Culling
+
+                // We'll mask the sprite/waveform within this segment block
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(x, y + 2, sw, trackH - 4);
+                ctx.clip();
+
+                if (isSelectedTrack && this.spriteImg && this.spriteImg.complete && this.spriteImg.naturalWidth > 0) {
+                    // For video sprite, we stretch the whole sprite over duration, but clip to segment
+                    ctx.drawImage(this.spriteImg, startX, y + 2, contentWidth, trackH - 4);
+                } else if (!isSelectedTrack && this.waveformImg && this.waveformImg.complete && this.waveformImg.naturalWidth > 0) {
+                    ctx.drawImage(this.waveformImg, startX, y + 2, contentWidth, trackH - 4);
+                } else {
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x, y + 2, sw, trackH - 4);
+                }
+                
+                // Draw borders if selected
+                const isSel = (this.selectedIndex.track === (isSelectedTrack ? 'video' : 'audio') && this.selectedIndex.index === i);
+                if (isSel) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                    ctx.fillRect(x, y + 2, sw, trackH - 4);
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y + 2, sw, trackH - 4);
+                } else {
+                    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y + 2, sw, trackH - 4);
+                }
+                ctx.restore();
+            }
+        };
 
         // --- Video Track ---
-        ctx.fillStyle = '#23200f';
+        ctx.fillStyle = '#1c1a0e';
         ctx.fillRect(headerW, trackY, w - headerW, trackH);
-        
-        const contentWidth = this.duration * pxPerSec;
-        if (contentWidth > 0) {
-            if (this.spriteImg && this.spriteImg.complete && this.spriteImg.naturalWidth > 0) {
-                ctx.drawImage(this.spriteImg, startX, trackY + 2, contentWidth, trackH - 4);
-            } else {
-                ctx.fillStyle = '#3a5a78';
-                ctx.fillRect(startX, trackY + 2, contentWidth, trackH - 4);
-            }
-        }
+        drawMediaSegments(this.segments.video, trackY, '#3a5a78', true);
 
         // --- Audio Track ---
-        ctx.fillStyle = '#2d2914';
+        ctx.fillStyle = '#23200f';
         ctx.fillRect(headerW, trackY + trackH, w - headerW, trackH);
-        
-        if (contentWidth > 0) {
-            if (this.waveformImg && this.waveformImg.complete && this.waveformImg.naturalWidth > 0) {
-                ctx.drawImage(this.waveformImg, startX, trackY + trackH + 2, contentWidth, trackH - 4);
-            } else {
-                ctx.fillStyle = '#5a783a';
-                ctx.fillRect(startX, trackY + trackH + 2, contentWidth, trackH - 4);
-            }
-        }
+        drawMediaSegments(this.segments.audio, trackY + trackH, '#5a783a', false);
 
         // --- Subtitle Track Background ---
         const subTrackY = trackY + trackH * 2;
@@ -267,34 +355,50 @@ class SubtitleTimeline {
         ctx.fillRect(headerW, subTrackY, w - headerW, trackH);
 
         // Segments (Subtitles)
-        for (let i = 0; i < this.segments.length; i++) {
-            const seg = this.segments[i];
-            const startTime = seg.words?.[0]?.start_time || 0;
-            const endTime = seg.words?.[seg.words.length - 1]?.end_time || 0;
-            const x = startX + startTime * pxPerSec;
-            const sw = Math.max((endTime - startTime) * pxPerSec, 2);
+        if (this.segments.text) {
+            for (let i = 0; i < this.segments.text.length; i++) {
+                const seg = this.segments.text[i];
+                const startTime = seg.words?.[0]?.start_time || 0;
+                const endTime = seg.words?.[seg.words.length - 1]?.end_time || 0;
+                const x = startX + startTime * pxPerSec;
+                const sw = Math.max((endTime - startTime) * pxPerSec, 2);
 
-            if (x > w || x + sw < headerW) continue; // Culling
+                if (x > w || x + sw < headerW) continue; // Culling
 
-            const isSelected = i === this.selectedIndex;
+                const isSelected = (this.selectedIndex.track === 'text' && this.selectedIndex.index === i);
 
-            ctx.fillStyle = isSelected ? 'rgba(255, 231, 77, 0.5)' : 'rgba(255, 231, 77, 0.25)';
-            ctx.fillRect(x, subTrackY + 2, sw, trackH - 4);
+                ctx.fillStyle = isSelected ? 'rgba(255, 231, 77, 0.5)' : 'rgba(255, 231, 77, 0.25)';
+                ctx.fillRect(x, subTrackY + 2, sw, trackH - 4);
 
-            ctx.strokeStyle = isSelected ? '#ffe74d' : 'rgba(255, 231, 77, 0.5)';
-            ctx.strokeRect(x, subTrackY + 2, sw, trackH - 4);
+                ctx.strokeStyle = isSelected ? '#ffe74d' : 'rgba(255, 231, 77, 0.5)';
+                ctx.lineWidth = isSelected ? 2 : 1;
+                ctx.strokeRect(x, subTrackY + 2, sw, trackH - 4);
 
-            // Segment text (if wide enough)
-            if (sw > 40) {
-                const text = seg.words?.map(w => w.word).join(' ') || '';
-                ctx.fillStyle = '#fff';
-                ctx.font = '10px Inter, sans-serif';
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(x, subTrackY, sw, trackH);
-                ctx.clip();
-                ctx.fillText(text, x + 4, subTrackY + trackH / 2 - 4);
-                ctx.restore();
+                // Segment text (if wide enough)
+                if (sw > 40) {
+                    const text = seg.words?.map(w => w.word).join(' ') || '';
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '10px Inter, sans-serif';
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(x, subTrackY, sw, trackH);
+                    ctx.clip();
+                    ctx.fillText(text, x + 4, subTrackY + trackH / 2 - 4);
+                    ctx.restore();
+                }
+            }
+        }
+
+        // Draw Time Selection Range if active
+        if (this.selectionRange) {
+            const rangeStart = startX + this.selectionRange.start * pxPerSec;
+            const rangeEnd = startX + this.selectionRange.end * pxPerSec;
+            if (rangeEnd > rangeStart) {
+                ctx.fillStyle = 'rgba(77, 184, 255, 0.3)';
+                ctx.fillRect(rangeStart, trackY, rangeEnd - rangeStart, trackH * 3);
+                ctx.strokeStyle = 'rgba(77, 184, 255, 0.8)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(rangeStart, trackY, rangeEnd - rangeStart, trackH * 3);
             }
         }
 

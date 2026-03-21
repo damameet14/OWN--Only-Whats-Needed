@@ -21,6 +21,34 @@ from core.video_utils import get_video_info, OUTPUT_FORMATS
 from server.config import FONTS_DIR
 
 
+def _build_concat_filter(video_segments) -> Optional[str]:
+    """Build FFmpeg complex filter string for concatenating video segments."""
+    if not video_segments:
+        return None
+
+    # Check if it's just one segment that covers the whole video (or close to it)
+    # Actually, we can just always run the concat if there are edits. 
+    # But let's build the filter anyway.
+    filter_parts = []
+    stream_labels = []
+
+    for i, seg in enumerate(video_segments):
+        ss = seg.source_start
+        se = seg.source_end
+        
+        # We must add extremely precise cut logic
+        filter_parts.append(f"[0:v]trim=start={ss}:end={se},setpts=PTS-STARTPTS[v{i}]")
+        filter_parts.append(f"[0:a]atrim=start={ss}:end={se},asetpts=PTS-STARTPTS[a{i}]")
+        stream_labels.append(f"[v{i}][a{i}]")
+
+    if not stream_labels:
+        return None
+
+    concat_part = "".join(stream_labels) + f"concat=n={len(video_segments)}:v=1:a=1[outv][outa]"
+    filter_parts.append(concat_part)
+    return ";".join(filter_parts)
+
+
 # ── Font cache ────────────────────────────────────────────────────────────────
 
 _font_cache: dict[tuple[str, int, bool, bool], ImageFont.FreeTypeFont] = {}
@@ -95,8 +123,42 @@ async def export_video(
     h = height if height % 2 == 0 else height - 1
 
     fps = info.fps
-    total_frames = int(info.duration * fps)
     fmt = OUTPUT_FORMATS.get(output_format_key, OUTPUT_FORMATS["MP4 (H.264)"])
+
+    # 1. PRE-PROCESS CUTS if needed
+    source_video_path = video_path
+    temp_preprocessed = None
+    
+    if subtitle_track.video_segments and len(subtitle_track.video_segments) > 0:
+        # Check if we actually need to cut (if not just 1 segment covering [0,duration])
+        seg = subtitle_track.video_segments[0]
+        # Allow a small epsilon for floating point duration comparison
+        is_uncut = len(subtitle_track.video_segments) == 1 and seg.source_start <= 0.1 and seg.source_end >= info.duration - 0.1
+        
+        if not is_uncut:
+            yield (1, "Applying cuts and trims…", None)
+            filter_str = _build_concat_filter(subtitle_track.video_segments)
+            if filter_str:
+                temp_preprocessed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+                temp_preprocessed.close()
+                
+                concat_cmd = [
+                    "ffmpeg", "-y",
+                    "-i", video_path,
+                    "-filter_complex", filter_str,
+                    "-map", "[outv]", "-map", "[outa]",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
+                    "-c:a", "aac", "-b:a", "192k",
+                    temp_preprocessed.name
+                ]
+                
+                await asyncio.to_thread(subprocess.run, concat_cmd, check=True)
+                source_video_path = temp_preprocessed.name
+                
+                # Re-evaluate video info after cutting
+                info = await asyncio.to_thread(get_video_info, source_video_path)
+
+    total_frames = int(info.duration * fps)
 
     # Extract audio to temp file
     yield (2, "Extracting audio…", None)
@@ -106,7 +168,7 @@ async def export_video(
     def _extract_audio():
         audio_cmd = [
             "ffmpeg", "-y",
-            "-i", video_path,
+            "-i", source_video_path,
             "-vn", "-acodec", "aac", "-b:a", "192k",
             audio_tmp.name,
         ]
@@ -128,7 +190,7 @@ async def export_video(
         """Decode → render → encode pipeline in a thread."""
         decode_cmd = [
             "ffmpeg", "-y",
-            "-i", video_path,
+            "-i", source_video_path,
             "-f", "rawvideo",
             "-pix_fmt", "rgb24",
             "-vf", "scale='trunc(iw/2)*2:trunc(ih/2)*2'",
@@ -228,6 +290,8 @@ async def export_video(
 
             try:
                 os.remove(audio_tmp.name)
+                if temp_preprocessed:
+                    os.remove(temp_preprocessed.name)
             except OSError:
                 pass
             

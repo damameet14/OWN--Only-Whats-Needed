@@ -24,6 +24,22 @@ class WordTiming:
 
 
 @dataclass
+class MediaSegment:
+    """A segment of a video or audio track on the timeline."""
+    start: float         # Start time on the timeline
+    end: float           # End time on the timeline
+    source_start: float  # Start time in the original media
+    source_end: float    # End time in the original media
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> MediaSegment:
+        return cls(**d)
+
+
+@dataclass
 class SubtitleStyle:
     """Visual style for subtitle text."""
     font_family: str = "Noto Sans Devanagari"
@@ -130,6 +146,8 @@ class SubtitleSegment:
 class SubtitleTrack:
     """Complete subtitle track for a video."""
     segments: list[SubtitleSegment] = field(default_factory=list)
+    video_segments: list[MediaSegment] = field(default_factory=list)
+    audio_segments: list[MediaSegment] = field(default_factory=list)
     global_style: SubtitleStyle = field(default_factory=SubtitleStyle)
     words_per_line: int = 5
     position_x: float = 0.5   # 0.0–1.0 normalised (0.5 = center)
@@ -159,6 +177,8 @@ class SubtitleTrack:
     def to_dict(self) -> dict:
         return {
             "segments": [s.to_dict() for s in self.segments],
+            "video_segments": [s.to_dict() for s in self.video_segments],
+            "audio_segments": [s.to_dict() for s in self.audio_segments],
             "global_style": self.global_style.to_dict(),
             "words_per_line": self.words_per_line,
             "position_x": self.position_x,
@@ -171,9 +191,13 @@ class SubtitleTrack:
     @classmethod
     def from_dict(cls, d: dict) -> SubtitleTrack:
         segments = [SubtitleSegment.from_dict(s) for s in d.get("segments", [])]
+        video_segments = [MediaSegment.from_dict(s) for s in d.get("video_segments", [])]
+        audio_segments = [MediaSegment.from_dict(s) for s in d.get("audio_segments", [])]
         global_style = SubtitleStyle.from_dict(d.get("global_style", {}))
         return cls(
             segments=segments,
+            video_segments=video_segments,
+            audio_segments=audio_segments,
             global_style=global_style,
             words_per_line=d.get("words_per_line", 5),
             position_x=d.get("position_x", 0.5),

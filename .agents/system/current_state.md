@@ -4,7 +4,7 @@
 2026-03-20
 
 ## Architecture Summary
-OWN is a hybrid offline video captioning application. A FastAPI backend serves a REST API and static web frontend on `localhost`. Core transcription (Vosk + faster-whisper) and export (FFmpeg + Pillow) engines run as async generators on the server. A desktop tray app (pystray) manages the server lifecycle. SQLite stores project metadata, user profiles, and model registry. The web editor provides real-time subtitle preview via canvas overlay, style controls, and a timeline widget.
+OWN is a hybrid offline video captioning application. A FastAPI backend serves a REST API and static web frontend on `localhost`. Core transcription (Vosk + faster-whisper) and export (FFmpeg + Pillow) engines run as async generators on the server. A desktop tray app (pystray) manages the server lifecycle. SQLite stores project metadata, user profiles, and model registry. The web editor provides real-time subtitle preview via canvas overlay, style controls, a timeline widget with multi-track non-linear editing (NLE) capabilities using an internal Edit Decision List (EDL).
 
 ## System Entry Points
 - API: `server/app.py` — FastAPI on `http://localhost:80` (or `:8000` non-admin)
@@ -34,9 +34,9 @@ OWN is a hybrid offline video captioning application. A FastAPI backend serves a
 3. User starts transcription (`POST /api/projects/{id}/transcribe`) → async task
 4. Transcription engine (Vosk or Whisper) extracts audio, yields `(progress, message, result)` tuples
 5. WebSocket at `/ws/progress/{task_id}` streams progress to the frontend
-6. Completed word timings are built into a `SubtitleTrack`, serialized to JSON, stored in DB
-7. Editor loads subtitle data, renders on canvas overlay, applies styles in real-time
-8. Export writes captioned video via FFmpeg + Pillow subtitle rendering pipeline
+6. Completed word timings are built into a `SubtitleTrack` (which acts as our EDL container), serialized to JSON, stored in DB
+7. Editor loads subtitle data, renders on canvas overlay, applies styles, and allows splitting/trimming across Video/Audio/Text tracks in real-time
+8. Export processes the non-linear edits (cuts/trims) via FFmpeg filters, then writes captioned video via Pillow subtitle rendering pipeline
 
 ## Active Integrations
 - **FFmpeg/ffprobe**: Video decode, audio extraction, encode, thumbnail generation
@@ -51,7 +51,7 @@ OWN is a hybrid offline video captioning application. A FastAPI backend serves a
 - Whisper transcription is CPU-bound unless CUDA is available
 
 ## Source of Truth
-Consolidates: system_change-hybrid-architecture.md
+Consolidates: system_change-hybrid-architecture.md, system_change-multi-track-edl.md
 
 ## Integrity Rule
 - Must reflect the latest system_change-* file
