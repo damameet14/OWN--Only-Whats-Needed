@@ -20,9 +20,10 @@ Vanilla HTML/CSS/JS web application served as static files by FastAPI. Two pages
 1. `editor.js:loadProject()` fetches project + subtitle data
 2. Load video element with `GET /api/projects/{id}/video`
 3. `SubtitlePreview` renders subtitles on canvas overlay synced to video time
-4. `SubtitleTimeline` draws segments on canvas with playhead
-5. Style controls update subtitle track → auto-save via `PUT /api/projects/{id}`
-6. Export: modal → `POST /api/projects/{id}/export` → WebSocket progress → download link
+4. `SubtitleTimeline` initialized with project ID, loads sprite and waveform images
+5. `SubtitleTimeline` draws images, segments, and sticky track headers on canvas with playhead
+6. Style controls update subtitle track → auto-save via `PUT /api/projects/{id}`
+7. Export: modal → `POST /api/projects/{id}/export` → WebSocket progress → download link
 
 ## Functions / Methods / Classes
 | Name | Type | File Path | Description | Calls / Used By |
@@ -58,3 +59,5 @@ Vanilla HTML/CSS/JS web application served as static files by FastAPI. Two pages
 |------|--------|
 | 2026-03-20 | Initial creation: index.html, editor.html, app.css, api.js, app.js, editor.js, preview.js, timeline.js |
 | 2026-03-21 | Added video and subtitle properties handles (`editor.js`, `preview.js`) and throttled timeline canvas scrubbing events (`timeline.js`) to resolve stutter. |
+| 2026-03-21 | Updated `editor.html` and `timeline.js` to support timeline resizing, split/trim buttons, and pre-rendered Sprite/Waveform visual assets. |
+| 2026-03-21 | Implemented Split and Trim core logic in `editor.js`, cached-busted JS files in `editor.html`, and updated `timeline.js` so that tracks align cleanly to the sticky headers and the playhead is clamped to the left panel border. |

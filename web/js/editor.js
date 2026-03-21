@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await loadProject(projectId);
     initVideoPlayer();
+    initTimelineControls();
     initStyleControls();
     initTabSwitching();
     initExport();
@@ -67,7 +68,7 @@ async function loadProject(id) {
         timeline = new SubtitleTimeline(timelineCanvas, timelineWrapper);
 
         if (subtitleTrack) {
-            timeline.setData(subtitleTrack.segments, project.video_duration);
+            timeline.setData(subtitleTrack.segments, project.video_duration, project.id);
             populateSegments(subtitleTrack.segments);
             populateFullText(subtitleTrack.segments);
             applyTrackToControls(subtitleTrack);
@@ -224,6 +225,75 @@ function initVideoPlayer() {
             }, 0);
         }
     });
+}
+
+
+// ── Timeline Controls ────────────────────────────────────────────────────────
+    
+function initTimelineControls() {
+    const btnSplit = document.getElementById('btn-split');
+    const btnTrim = document.getElementById('btn-trim');
+
+    if (btnSplit) {
+        btnSplit.addEventListener('click', () => {
+            if (!timeline || !subtitleTrack) return;
+            const time = timeline.currentTime;
+            
+            // Find segment containing time
+            const sIdx = subtitleTrack.segments.findIndex(seg => {
+                const start = seg.words?.[0]?.start_time || 0;
+                const end = seg.words?.[seg.words.length - 1]?.end_time || 0;
+                return time > start && time < end;
+            });
+
+            if (sIdx !== -1) {
+                const seg = subtitleTrack.segments[sIdx];
+                // Find word index where split happens
+                const wIdx = seg.words.findIndex(w => (w.start_time <= time && w.end_time >= time) || w.start_time >= time);
+                
+                if (wIdx > 0 && wIdx < seg.words.length) { 
+                    const seg1 = { 
+                        ...seg, 
+                        words: seg.words.slice(0, wIdx), 
+                        text: seg.words.slice(0, wIdx).map(w=>w.word).join(' ') 
+                    };
+                    const seg2 = { 
+                        ...seg, 
+                        words: seg.words.slice(wIdx), 
+                        text: seg.words.slice(wIdx).map(w=>w.word).join(' ') 
+                    };
+                    subtitleTrack.segments.splice(sIdx, 1, seg1, seg2);
+                    timeline.setData(subtitleTrack.segments, project.video_duration, project.id);
+                    populateSegments(subtitleTrack.segments);
+                    populateFullText(subtitleTrack.segments);
+                    autoSave();
+                    showToast('Segment split');
+                } else {
+                    showToast('Cannot split at this exact frame', 'error');
+                }
+            } else {
+                showToast('Playhead must be over a segment to split', 'error');
+            }
+        });
+    }
+
+    if (btnTrim) {
+        btnTrim.addEventListener('click', () => {
+            if (!timeline || !subtitleTrack) return;
+            
+            if (timeline.selectedIndex !== -1 && timeline.selectedIndex < subtitleTrack.segments.length) {
+                subtitleTrack.segments.splice(timeline.selectedIndex, 1);
+                timeline.selectedIndex = -1;
+                timeline.setData(subtitleTrack.segments, project.video_duration, project.id);
+                populateSegments(subtitleTrack.segments);
+                populateFullText(subtitleTrack.segments);
+                autoSave();
+                showToast('Segment deleted');
+            } else {
+                showToast('Please select a segment to delete first', 'error');
+            }
+        });
+    }
 }
 
 

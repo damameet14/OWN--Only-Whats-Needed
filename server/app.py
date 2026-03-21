@@ -25,7 +25,7 @@ from server.model_manager import get_available_models, download_vosk_model, down
 from models.subtitle import SubtitleTrack, WordTiming
 from core.video_utils import get_video_info
 from core.srt_utils import generate_srt
-
+from core.timeline_utils import generate_timeline_assets
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -132,6 +132,11 @@ async def create_project(
         video_height=info.height,
         thumbnail_path=thumb_path,
         language=language,
+    )
+
+    # Generate timeline assets in the background
+    asyncio.get_running_loop().run_in_executor(
+        None, generate_timeline_assets, video_path, info.duration, thumb_path
     )
 
     return project
@@ -405,6 +410,55 @@ async def get_thumbnail(project_id: int):
 
     raise HTTPException(404, "Thumbnail not available")
 
+
+@app.get("/api/projects/{project_id}/timeline_sprite")
+async def get_timeline_sprite(project_id: int):
+    """Get project timeline video sprite sheet."""
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    thumb_path = project.get("thumbnail_path")
+    if thumb_path:
+        sprite_path = f"{os.path.splitext(thumb_path)[0]}_sprite.jpg"
+        if os.path.exists(sprite_path):
+            return FileResponse(sprite_path, media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
+
+    raise HTTPException(404, "Sprite sheet not available")
+
+
+@app.get("/api/projects/{project_id}/waveform")
+async def get_waveform(project_id: int):
+    """Get project audio waveform image."""
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    thumb_path = project.get("thumbnail_path")
+    if thumb_path:
+        waveform_path = f"{os.path.splitext(thumb_path)[0]}_waveform.png"
+        if os.path.exists(waveform_path):
+            return FileResponse(waveform_path, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+
+    raise HTTPException(404, "Waveform not available")
+
+@app.post("/api/projects/{project_id}/timeline_assets")
+async def generate_timeline_assets_endpoint(project_id: int):
+    """Manually trigger timeline asset generation."""
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    video_path = project.get("video_path")
+    thumb_path = project.get("thumbnail_path")
+    duration = project.get("video_duration")
+    if not video_path or not thumb_path or not duration:
+        raise HTTPException(400, "Missing project video data")
+        
+    asyncio.get_running_loop().run_in_executor(
+        None, generate_timeline_assets, video_path, duration, thumb_path
+    )
+    return {"message": "Timeline asset generation started"}
 
 # ── Export download ───────────────────────────────────────────────────────────
 

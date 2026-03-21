@@ -19,10 +19,27 @@ class SubtitleTimeline {
         this.setupEvents();
     }
 
-    setData(segments, duration) {
+    setData(segments, duration, projectId = null) {
         this.segments = segments || [];
         this.duration = duration || 0;
+        this.projectId = projectId;
+        
+        // Load assets asynchronously if projectId is provided
+        if (this.projectId) {
+            this.loadAssets();
+        }
+        
         this.draw();
+    }
+
+    loadAssets() {
+        this.spriteImg = new Image();
+        this.spriteImg.src = `/api/projects/${this.projectId}/timeline_sprite`;
+        this.spriteImg.onload = () => this.draw();
+
+        this.waveformImg = new Image();
+        this.waveformImg.src = `/api/projects/${this.projectId}/waveform`;
+        this.waveformImg.onload = () => this.draw();
     }
 
     setCurrentTime(time) {
@@ -41,6 +58,7 @@ class SubtitleTimeline {
             const pxPerSec = this.getPixelsPerSecond();
             const trackH = (this.canvas.height - 32) / 3;
             const subTrackY = 24 + trackH * 2;
+            const headerW = 85;
 
             // Handle segment selection only on mouse down
             if (isDown && y >= subTrackY && y <= subTrackY + trackH && this.segments.length > 0) {
@@ -48,7 +66,7 @@ class SubtitleTimeline {
                     const seg = this.segments[i];
                     const startTime = seg.words?.[0]?.start_time || 0;
                     const endTime = seg.words?.[seg.words.length - 1]?.end_time || 0;
-                    const sx = startTime * pxPerSec - this.scrollOffset;
+                    const sx = headerW + startTime * pxPerSec - this.scrollOffset;
                     const sw = (endTime - startTime) * pxPerSec;
 
                     if (x >= sx && x <= sx + sw) {
@@ -62,7 +80,7 @@ class SubtitleTimeline {
             }
 
             // Scrubbing playhead
-            const seekTime = Math.max(0, Math.min((x + this.scrollOffset) / pxPerSec, this.duration));
+            const seekTime = Math.max(0, Math.min((x - headerW + this.scrollOffset) / pxPerSec, this.duration));
             const now = Date.now();
             if (this.onSeek && (forceSeek || !this.lastSeek || now - this.lastSeek > 100)) {
                 this.lastSeek = now;
@@ -98,26 +116,72 @@ class SubtitleTimeline {
                 const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
                 this.zoom = Math.max(0.5, Math.min(this.zoom * zoomFactor, 20));
             } else {
-                const maxScroll = Math.max(0, this.duration * this.getPixelsPerSecond() - this.canvas.width + 100);
+                const pxPerSec = this.getPixelsPerSecond();
+                const headerW = 85;
+                const maxScroll = Math.max(0, this.duration * pxPerSec - (this.canvas.width - headerW) + 100);
                 this.scrollOffset = Math.max(0, Math.min(this.scrollOffset + (e.deltaX || e.deltaY), maxScroll));
             }
             this.draw();
         }, { passive: false });
 
-        // Zoom buttons
+        // Zoom buttons and slider
         document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
-            this.zoom = Math.min(this.zoom * 1.5, 10);
+            this.zoom = Math.min(this.zoom * 1.5, 20);
+            this.updateZoomSlider();
             this.draw();
         });
         document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
             this.zoom = Math.max(this.zoom / 1.5, 0.5);
+            this.updateZoomSlider();
             this.draw();
         });
+        const zoomSlider = document.getElementById('zoom-slider');
+        if (zoomSlider) {
+            zoomSlider.addEventListener('input', (e) => {
+                this.zoom = parseFloat(e.target.value);
+                this.draw();
+            });
+        }
+        
+        // Setup resizing drag
+        const resizer = document.getElementById('timeline-resizer');
+        const container = document.getElementById('timeline-container');
+        if (resizer && container) {
+            let isResizing = false;
+            let startY, startHeight;
+
+            resizer.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                startY = e.clientY;
+                startHeight = container.getBoundingClientRect().height;
+                e.preventDefault();
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+                const newHeight = startHeight - (e.clientY - startY);
+                container.style.height = `${Math.max(100, Math.min(600, newHeight))}px`;
+                this.draw();
+            });
+
+            window.addEventListener('mouseup', () => {
+                isResizing = false;
+            });
+        }
+    }
+
+    updateZoomSlider() {
+        const zoomSlider = document.getElementById('zoom-slider');
+        if (zoomSlider) {
+            zoomSlider.value = this.zoom;
+        }
     }
 
     getPixelsPerSecond() {
         if (this.duration <= 0) return 50;
-        return (this.canvas.width / this.duration) * this.zoom;
+        const headerW = 85;
+        // The displayable width ignores the sticky panel:
+        return ((this.canvas.width - headerW) / this.duration) * this.zoom;
     }
 
     draw() {
@@ -141,10 +205,19 @@ class SubtitleTimeline {
         ctx.font = '10px Inter, sans-serif';
         ctx.textBaseline = 'top';
 
+        const headerW = 85;
+        const startX = headerW - this.scrollOffset;
+        
+        ctx.save();
+        ctx.beginPath();
+        // Clip track area (prevent drawing under sticky headers)
+        ctx.rect(headerW, 0, w - headerW, h);
+        ctx.clip();
+
         const step = this.getTimeStep();
         for (let t = 0; t <= this.duration; t += step) {
-            const x = t * pxPerSec - this.scrollOffset;
-            if (x < -50 || x > w + 50) continue;
+            const x = startX + t * pxPerSec;
+            if (x < headerW - 50 || x > w + 50) continue;
 
             ctx.fillStyle = '#a8a48e';
             ctx.fillText(this.formatTime(t), x + 2, 2);
@@ -156,53 +229,52 @@ class SubtitleTimeline {
             ctx.stroke();
         }
 
-        // Draw Tracks
+        // Draw Track Backgrounds and Data
         const trackY = 24;
         const totalTrackH = h - 32;
         const trackH = totalTrackH / 3;
 
-        // Video Track
+        // --- Video Track ---
         ctx.fillStyle = '#23200f';
-        ctx.fillRect(0, trackY, w, trackH);
-        ctx.fillStyle = '#a8a48e';
-        ctx.fillText('🎬 Video', 8, trackY + trackH / 2 - 5);
+        ctx.fillRect(headerW, trackY, w - headerW, trackH);
         
-        const lastVideoX = this.duration * pxPerSec - this.scrollOffset;
-        if (lastVideoX > 0) {
-            ctx.fillStyle = '#3a5a78';
-            ctx.fillRect(-this.scrollOffset, trackY + 2, this.duration * pxPerSec, trackH - 4);
+        const contentWidth = this.duration * pxPerSec;
+        if (contentWidth > 0) {
+            if (this.spriteImg && this.spriteImg.complete && this.spriteImg.naturalWidth > 0) {
+                ctx.drawImage(this.spriteImg, startX, trackY + 2, contentWidth, trackH - 4);
+            } else {
+                ctx.fillStyle = '#3a5a78';
+                ctx.fillRect(startX, trackY + 2, contentWidth, trackH - 4);
+            }
         }
 
-        // Audio Track
+        // --- Audio Track ---
         ctx.fillStyle = '#2d2914';
-        ctx.fillRect(0, trackY + trackH, w, trackH);
-        ctx.fillStyle = '#a8a48e';
-        ctx.fillText('🎵 Audio', 8, trackY + trackH + trackH / 2 - 5);
+        ctx.fillRect(headerW, trackY + trackH, w - headerW, trackH);
         
-        if (lastVideoX > 0) {
-            ctx.fillStyle = '#5a783a';
-            ctx.fillRect(-this.scrollOffset, trackY + trackH + 2, this.duration * pxPerSec, trackH - 4);
+        if (contentWidth > 0) {
+            if (this.waveformImg && this.waveformImg.complete && this.waveformImg.naturalWidth > 0) {
+                ctx.drawImage(this.waveformImg, startX, trackY + trackH + 2, contentWidth, trackH - 4);
+            } else {
+                ctx.fillStyle = '#5a783a';
+                ctx.fillRect(startX, trackY + trackH + 2, contentWidth, trackH - 4);
+            }
         }
 
-        // Subtitle Track
+        // --- Subtitle Track Background ---
         const subTrackY = trackY + trackH * 2;
         ctx.fillStyle = '#352f1a';
-        ctx.fillRect(0, subTrackY, w, trackH);
-        ctx.fillStyle = '#a8a48e';
-        // Only draw text if scrolled left
-        if (this.scrollOffset < 50) {
-            ctx.fillText('📝 Subtitles', 8, subTrackY + trackH / 2 - 5);
-        }
+        ctx.fillRect(headerW, subTrackY, w - headerW, trackH);
 
         // Segments (Subtitles)
         for (let i = 0; i < this.segments.length; i++) {
             const seg = this.segments[i];
             const startTime = seg.words?.[0]?.start_time || 0;
             const endTime = seg.words?.[seg.words.length - 1]?.end_time || 0;
-            const x = startTime * pxPerSec - this.scrollOffset;
+            const x = startX + startTime * pxPerSec;
             const sw = Math.max((endTime - startTime) * pxPerSec, 2);
 
-            if (x > w || x + sw < 0) continue; // Culling
+            if (x > w || x + sw < headerW) continue; // Culling
 
             const isSelected = i === this.selectedIndex;
 
@@ -226,24 +298,48 @@ class SubtitleTimeline {
             }
         }
 
+        ctx.restore(); // Undo the clip to draw the headers properly
+
+        // Right panel overlay (track sticky headers)
+        ctx.fillStyle = '#1c1a0e'; // Solid background for headers
+        ctx.fillRect(0, 0, headerW, h); // Cover from top to bottom
+        // Border line separating header from tracks
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.beginPath();
+        ctx.moveTo(headerW, 0);
+        ctx.lineTo(headerW, h);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 10px Inter, sans-serif';
+        ctx.textBaseline = 'middle';
+        // Video
+        ctx.fillText('🎬 VIDEO', 10, trackY + trackH / 2);
+        // Audio
+        ctx.fillText('🎧 AUDIO', 10, trackY + trackH + trackH / 2);
+        // Text
+        ctx.fillText('📝 TEXT', 10, subTrackY + trackH / 2);
+
         // Playhead
-        const playheadX = this.currentTime * pxPerSec - this.scrollOffset;
+        let playheadX = startX + this.currentTime * pxPerSec;
+        // Clamp to left border
+        playheadX = Math.max(headerW, playheadX);
+
         ctx.strokeStyle = '#ff4444';
+        ctx.fillStyle = '#ff4444';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(playheadX, 0);
         ctx.lineTo(playheadX, h);
         ctx.stroke();
-        ctx.lineWidth = 1;
-
-        // Playhead triangle
-        ctx.fillStyle = '#ff4444';
+        
+        // Playhead triangle top
         ctx.beginPath();
-        ctx.moveTo(playheadX - 5, 0);
-        ctx.lineTo(playheadX + 5, 0);
-        ctx.lineTo(playheadX, 8);
-        ctx.closePath();
+        ctx.moveTo(playheadX - 6, 0);
+        ctx.lineTo(playheadX + 6, 0);
+        ctx.lineTo(playheadX, 10);
         ctx.fill();
+        ctx.lineWidth = 1;
     }
 
     getTimeStep() {

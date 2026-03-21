@@ -1,7 +1,7 @@
 # Code Context: Server (FastAPI Backend)
 
 ## Last Updated
-2026-03-20
+2026-03-21
 
 ## Overview
 FastAPI backend serving REST API, WebSocket progress, SQLite database, and static web files. Handles project CRUD, transcription orchestration, export jobs, model management, and user profiles.
@@ -12,10 +12,11 @@ FastAPI backend serving REST API, WebSocket progress, SQLite database, and stati
 
 ## Execution Flow
 1. `startup` event → `ensure_directories()` + `init_database()` + `scan_existing_models()`
-2. `POST /api/projects` → save upload → probe video → generate thumbnail → create DB record
+2. `POST /api/projects` → save upload → probe video → generate thumbnail → create DB record → generate timeline assets (async)
 3. `POST /api/projects/{id}/transcribe` → spawn `asyncio.create_task(_run_transcription)` → returns `task_id`
 4. `ws/progress/{task_id}` → streams `{percent, message, result}` updates
 5. `POST /api/projects/{id}/export` → spawn `_run_export` → streams progress → produces file
+6. `GET /api/projects/{id}/timeline_sprite` & `/waveform` → serve generated timeline image assets
 
 ## Functions / Methods / Classes
 | Name | Type | File Path | Description | Calls / Used By |
@@ -63,3 +64,6 @@ FastAPI backend serving REST API, WebSocket progress, SQLite database, and stati
 | Date | Change |
 |------|--------|
 | 2026-03-20 | Initial creation: config, database, model_manager, app |
+| 2026-03-21 | Added `generate_timeline_assets` integration in `app.py` |
+| 2026-03-21 | Fixed python cross-platform lint errors for `subprocess.CREATE_NO_WINDOW` in `core/timeline_utils.py` |
+
