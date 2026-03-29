@@ -108,6 +108,26 @@ async function listAvailableModels() {
     return apiRequest('/api/models/available');
 }
 
+// ── Model API (Additional helpers) ───────────────────────────────────────────────
+
+/**
+ * Get list of available models with install status
+ */
+async function getAvailableModels() {
+    const response = await fetch('/api/models/available');
+    if (!response.ok) throw new Error('Failed to get available models');
+    return await response.json();
+}
+
+/**
+ * Get list of installed models
+ */
+async function getInstalledModels() {
+    const response = await fetch('/api/models');
+    if (!response.ok) throw new Error('Failed to get installed models');
+    return await response.json();
+}
+
 async function downloadModel(name) {
     return apiRequest('/api/models/download', {
         method: 'POST',
@@ -117,6 +137,31 @@ async function downloadModel(name) {
 
 async function deleteModel(id) {
     return apiRequest(`/api/models/${id}`, { method: 'DELETE' });
+}
+
+/**
+ * Download a model
+ * @param {string} modelName - Name of the model to download
+ * @param {function} onProgress - Callback for progress updates (percent, message)
+ */
+async function downloadModel(modelName, onProgress) {
+    const { task_id } = await fetch('/api/models/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: modelName })
+    }).then(r => r.json());
+
+    return watchProgress(task_id,
+        (data) => {
+            if (onProgress) onProgress(data.percent, data.message);
+        },
+        (data) => {
+            // Download complete
+        },
+        (error) => {
+            throw new Error(error);
+        }
+    );
 }
 
 // ── User ─────────────────────────────────────────────────────────────────────

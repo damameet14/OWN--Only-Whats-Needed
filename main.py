@@ -24,13 +24,13 @@ def start_server(host: str = "0.0.0.0", port: int = 80):
 
 def main():
     # Determine port (default 80, fallback to 8000 if not admin)
-    port = 80
+    port = 5888
     try:
         import ctypes
         if sys.platform == "win32" and ctypes.windll.shell32.IsUserAnAdmin() == 0:
-            port = 8000  # Non-admin fallback
+            port = 5888  # Non-admin fallback
     except Exception:
-        port = 8000
+        port = 5888
 
     server_url = f"http://localhost:{port}"
 

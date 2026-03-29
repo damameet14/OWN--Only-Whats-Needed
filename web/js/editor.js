@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTabSwitching();
     initExport();
     initSrtDownload();
+    initTranscription();
     loadPresets();
 });
 
@@ -817,6 +818,60 @@ function initSrtDownload() {
 }
 
 
+// ── Transcription ─────────────────────────────────────────────────────────────
+
+function initTranscription() {
+    const modal = document.getElementById('transcribe-modal');
+    const btnTranscribe = document.getElementById('btn-transcribe');
+    const btnCancel = document.getElementById('transcribe-cancel');
+    const btnStart = document.getElementById('transcribe-start');
+
+    btnTranscribe.addEventListener('click', () => showModal(modal));
+    btnCancel.addEventListener('click', () => hideModal(modal));
+
+    btnStart.addEventListener('click', async () => {
+        const engine = document.getElementById('transcribe-engine')?.value || 'vosk';
+        const model = document.getElementById('transcribe-model')?.value || null;
+
+        const progressWrap = document.getElementById('transcribe-progress-wrap');
+        const statusEl = document.getElementById('transcribe-status');
+        const barEl = document.getElementById('transcribe-progress-bar');
+        const buttons = document.getElementById('transcribe-buttons');
+
+        progressWrap.classList.remove('hidden');
+        buttons.classList.add('hidden');
+
+        try {
+            const { task_id } = await startTranscription(project.id, { engine, model });
+
+            watchProgress(task_id,
+                (data) => {
+                    barEl.style.width = `${data.percent}%`;
+                    statusEl.textContent = data.message;
+                },
+                (data) => {
+                    progressWrap.classList.add('hidden');
+                    buttons.classList.remove('hidden');
+                    hideModal(modal);
+                    showToast('Transcription complete!');
+                    // Reload project to get subtitle data
+                    loadProject(project.id);
+                },
+                (error) => {
+                    progressWrap.classList.add('hidden');
+                    buttons.classList.remove('hidden');
+                    showToast(`Transcription error: ${error}`, 'error');
+                }
+            );
+        } catch (err) {
+            progressWrap.classList.add('hidden');
+            buttons.classList.remove('hidden');
+            showToast(err.message, 'error');
+        }
+    });
+}
+
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function showModal(modal) { modal.classList.add('active'); }
@@ -838,3 +893,99 @@ function escapeHtml(text) {
     div.textContent = text || '';
     return div.innerHTML;
 }
+
+
+// ── Model Selection ───────────────────────────────────────────────────────────
+
+let availableModels = [];
+let installedModels = [];
+
+async function initModelSelection() {
+    try {
+        availableModels = await getAvailableModels();
+        installedModels = await getInstalledModels();
+        updateModelUI();
+    } catch (err) {
+        console.error('Failed to load models:', err);
+    }
+}
+
+function updateModelUI() {
+    const engineSelect = document.getElementById('transcribe-engine');
+    const whisperSection = document.getElementById('whisper-model-section');
+    const modelSelect = document.getElementById('transcribe-model');
+    const modelStatus = document.getElementById('model-status');
+    const downloadBtn = document.getElementById('download-model-btn');
+
+    if (!engineSelect) return;
+
+    // Show/hide Whisper section based on engine selection
+    engineSelect.addEventListener('change', () => {
+        if (engineSelect.value === 'whisper') {
+            whisperSection.classList.remove('hidden');
+            updateWhisperModelStatus();
+        } else {
+            whisperSection.classList.add('hidden');
+        }
+    });
+
+    // Update Whisper model status
+    updateWhisperModelStatus();
+
+    // Download button handler
+    downloadBtn.addEventListener('click', async () => {
+        const modelName = modelSelect.value;
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = 'Downloading...';
+        modelStatus.textContent = 'Starting download...';
+
+        try {
+            await downloadModel(modelName, (percent, message) => {
+                downloadBtn.textContent = `Downloading ${percent}%`;
+                modelStatus.textContent = message;
+            });
+
+            // Refresh model list
+            installedModels = await getInstalledModels();
+            updateWhisperModelStatus();
+            showToast('Model downloaded successfully!');
+        } catch (err) {
+            modelStatus.textContent = `Error: ${err.message}`;
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = 'Download Model';
+        }
+    });
+}
+
+function updateWhisperModelStatus() {
+    const modelSelect = document.getElementById('transcribe-model');
+    const modelStatus = document.getElementById('model-status');
+    const downloadBtn = document.getElementById('download-model-btn');
+
+    if (!modelSelect) return;
+
+    const selectedModel = modelSelect.value;
+    const installed = installedModels.find(m => m.name.includes(selectedModel));
+
+    if (installed) {
+        modelStatus.textContent = '✓ Model installed';
+        modelStatus.classList.add('text-green-400');
+        modelStatus.classList.remove('text-red-400');
+        downloadBtn.classList.add('hidden');
+    } else {
+        const modelInfo = availableModels.find(m => m.name.includes(selectedModel));
+        if (modelInfo) {
+            modelStatus.textContent = `Model not installed (${modelInfo.size_mb} MB)`;
+            modelStatus.classList.remove('text-green-400');
+            modelStatus.classList.add('text-red-400');
+            downloadBtn.classList.remove('hidden');
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = 'Download Model';
+        }
+    }
+}
+
+// Initialize model selection on page load
+document.addEventListener('DOMContentLoaded', () => {
+    initModelSelection();
+});

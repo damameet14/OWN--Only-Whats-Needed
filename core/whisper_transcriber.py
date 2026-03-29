@@ -1,4 +1,8 @@
-"""Faster-Whisper offline transcription engine (no API, local inference)."""
+"""Faster-Whisper offline transcription engine (no API, local inference).
+
+NOTE: For RAM-efficient transcription of long videos, use core.whisper_chunked
+instead. This module is kept for backward compatibility with short videos.
+"""
 
 from __future__ import annotations
 import os

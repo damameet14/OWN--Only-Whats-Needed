@@ -42,6 +42,9 @@
             <span class="text-xs text-slate-400" id="save-status">Saved</span>
         </div>
         <div class="flex items-center gap-2">
+            <button class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white/5 border border-white/10 rounded-lg text-white hover:bg-white/10 transition-colors" id="btn-transcribe">
+                <span class="material-symbols-outlined" style="font-size:16px">mic</span> Transcribe
+            </button>
             <button class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white/5 border border-white/10 rounded-lg text-white hover:bg-white/10 transition-colors" id="btn-srt">
                 <span class="material-symbols-outlined" style="font-size:16px">download</span> SRT
             </button>
@@ -214,6 +217,51 @@
         </div>
         <div class="flex-1 relative overflow-hidden" id="timeline-wrapper">
             <canvas id="timeline-canvas" class="block w-full h-full cursor-pointer"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Transcription Modal -->
+<div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" id="transcribe-modal">
+    <div class="bg-bg-surface border border-white/10 rounded-2xl p-8 w-full max-w-md modal-content">
+        <h3 class="text-xl font-bold text-white mb-6">Transcribe Video</h3>
+        <div class="space-y-4">
+            <!-- Model Selection Section -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-300 mb-2">Transcription Engine</label>
+                <select id="transcribe-engine" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary">
+                    <option value="vosk">Vosk (Hindi)</option>
+                    <option value="whisper">Whisper (Multilingual)</option>
+                </select>
+            </div>
+
+            <div id="whisper-model-section" class="mb-4 hidden">
+                <label class="block text-sm font-medium text-slate-300 mb-2">Whisper Model</label>
+                <select id="transcribe-model" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary">
+                    <option value="large-v3-turbo">Large v3 Turbo (800MB) - Recommended</option>
+                    <option value="large-v3">Large v3 (3GB) - Higher Accuracy</option>
+                </select>
+                <div id="model-status" class="mt-2 text-xs text-slate-400"></div>
+                <button id="download-model-btn" class="mt-2 w-full bg-slate-700 hover:bg-slate-600 text-white text-sm py-2 px-4 rounded-lg hidden">
+                    Download Model
+                </button>
+            </div>
+
+            <div id="transcribe-progress-wrap" class="hidden">
+                <div class="flex items-center gap-3">
+                    <div class="spinner"></div>
+                    <div class="flex-1">
+                        <p class="text-sm text-white" id="transcribe-status">Transcribing...</p>
+                        <div class="progress-bar mt-2">
+                            <div class="progress-bar-fill" id="transcribe-progress-bar" style="width:0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="flex gap-3 mt-8" id="transcribe-buttons">
+            <button class="flex-1 bg-white/5 border border-white/10 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-white/10" id="transcribe-cancel">Cancel</button>
+            <button class="flex-1 bg-primary text-bg-dark px-4 py-2 rounded-lg font-bold text-sm hover:bg-primary-hover" id="transcribe-start">Start Transcription</button>
         </div>
     </div>
 </div>
