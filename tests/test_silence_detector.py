@@ -49,7 +49,7 @@ async def test_detect_silence_boundaries_basic():
             wav_path,
             min_silence_duration=0.5,
             silence_threshold=-40.0,
-            max_chunk_duration=30.0
+            max_chunk_duration=5.0  # Use smaller value to trigger chunking
         )
 
         # Should have 3 chunks (5s audio each, split at silence)
@@ -60,11 +60,11 @@ async def test_detect_silence_boundaries_basic():
         assert 4.5 <= chunks[0][1] <= 5.5  # Around 5 seconds
 
         # Check second chunk
-        assert 5.5 <= chunks[1][0] <= 6.5
-        assert 10.5 <= chunks[1][1] <= 11.5
+        assert 4.5 <= chunks[1][0] <= 5.5
+        assert 9.5 <= chunks[1][1] <= 10.5
 
         # Check third chunk
-        assert 11.0 <= chunks[2][0] <= 12.0
+        assert 9.5 <= chunks[2][0] <= 10.5
         assert chunks[2][1] <= 12.5
 
     finally:

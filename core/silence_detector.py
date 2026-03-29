@@ -30,6 +30,10 @@ async def detect_silence_boundaries(
     # Get audio duration first
     duration = await _get_audio_duration(wav_path)
 
+    if duration <= max_chunk_duration:
+        # No need to chunk
+        return [(0.0, duration)]
+
     # Run FFmpeg silence detection
     silence_regions = await _detect_silence_with_ffmpeg(
         wav_path, min_silence_duration, silence_threshold
