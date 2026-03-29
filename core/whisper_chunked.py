@@ -5,7 +5,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import wave
 import asyncio
 from typing import AsyncGenerator, Optional, Callable
 
@@ -36,12 +35,24 @@ async def transcribe_whisper_chunked(
         (progress_percent, status_message, word_timings_or_none)
         When progress == 100, word_timings will contain the final results.
     """
+    # Validate input
+    if not os.path.exists(video_path):
+        yield (0, f"Error: Video file not found: {video_path}", None)
+        return
+
+    def _update_progress(percent: int, message: str) -> None:
+        """Internal helper to update progress and optionally call callback."""
+        if progress_callback is not None:
+            progress_callback(percent, message)
+
     # Step 1 — extract audio (5%)
     yield (5, "Extracting audio from video…", None)
+    _update_progress(5, "Extracting audio from video…")
     wav_path = await asyncio.to_thread(_extract_audio, video_path)
 
     # Step 2 — detect silence boundaries (10%)
     yield (15, "Detecting silence for chunking…", None)
+    _update_progress(15, "Detecting silence for chunking…")
     chunks = await detect_silence_boundaries(
         wav_path,
         min_silence_duration=WHISPER_MIN_SILENCE_DURATION,
@@ -51,22 +62,34 @@ async def transcribe_whisper_chunked(
 
     # Step 3 — load model (5%)
     yield (20, "Loading Whisper model…", None)
+    _update_progress(20, "Loading Whisper model…")
 
     def _load_model():
         from faster_whisper import WhisperModel
         return WhisperModel(model_size, device=device, compute_type=compute_type)
 
-    model = await asyncio.to_thread(_load_model)
+    try:
+        model = await asyncio.to_thread(_load_model)
+    except Exception as e:
+        yield (0, f"Error loading Whisper model: {e}", None)
+        _update_progress(0, f"Error loading Whisper model: {e}")
+        try:
+            os.remove(wav_path)
+        except OSError:
+            pass
+        return
 
     # Step 4 — transcribe chunks (80%)
     yield (25, f"Transcribing {len(chunks)} chunks…", None)
+    _update_progress(25, f"Transcribing {len(chunks)} chunks…")
 
     all_words: list[WordTiming] = []
     total_chunks = len(chunks)
 
     for chunk_idx, (chunk_start, chunk_end) in enumerate(chunks):
-        chunk_progress = 25 + int((chunk_idx / total_chunks) * 75)
+        chunk_progress = 25 + int(((chunk_idx + 1) / total_chunks) * 75)
         yield (chunk_progress, f"Processing chunk {chunk_idx + 1}/{total_chunks}…", None)
+        _update_progress(chunk_progress, f"Processing chunk {chunk_idx + 1}/{total_chunks}…")
 
         # Extract chunk audio
         chunk_wav = await asyncio.to_thread(
@@ -104,6 +127,7 @@ async def transcribe_whisper_chunked(
         pass
 
     yield (100, "Transcription complete.", all_words)
+    _update_progress(100, "Transcription complete.")
 
 
 def _extract_audio(video_path: str) -> str:
