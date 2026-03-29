@@ -211,7 +211,19 @@ async def start_transcription(project_id: int, body: dict = None):
 
     body = body or {}
     engine = body.get("engine", "vosk")  # "vosk" or "whisper"
+    model = body.get("model")  # Optional specific model name
     language = body.get("language", project.get("language", "hi"))
+
+    # Validate model is installed if specified
+    if model:
+        models = db.list_models()
+        model_found = False
+        for m in models:
+            if m["name"] == model:
+                model_found = True
+                break
+        if not model_found:
+            raise HTTPException(400, f"Model '{model}' not installed. Please download it first.")
 
     task_id = uuid.uuid4().hex
     _tasks[task_id] = {"percent": 0, "message": "Starting...", "result": None}
@@ -230,7 +242,7 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
         video_path = project["video_path"]
 
         if engine == "whisper":
-            from core.whisper_transcriber import transcribe_whisper
+            from core.whisper_chunked import transcribe_whisper_chunked
 
             # Find the whisper model to use
             model_size = "large-v3-turbo"
@@ -243,7 +255,11 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
                         model_size = "large-v3"
                     break
 
-            gen = transcribe_whisper(video_path, model_size=model_size, language=language)
+            gen = transcribe_whisper_chunked(
+                video_path,
+                model_size=model_size,
+                language=language,
+            )
         else:
             from core.transcriber import transcribe_vosk
 
