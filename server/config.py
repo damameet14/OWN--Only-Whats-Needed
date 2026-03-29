@@ -36,6 +36,11 @@ INPUT_EXTENSIONS = {
 # Max upload size (500 MB)
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024
 
+# ── Whisper chunked transcription settings ────────────────────────────────
+WHISPER_MAX_CHUNK_DURATION = 30.0      # Maximum chunk duration in seconds
+WHISPER_MIN_SILENCE_DURATION = 0.5     # Minimum silence duration to split at
+WHISPER_SILENCE_THRESHOLD = -40.0      # Silence threshold in dB
+
 
 def ensure_directories():
     """Create required directories if they don't exist."""
