@@ -245,18 +245,26 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
             from core.whisper_chunked import transcribe_whisper_chunked
 
             # Find the whisper model to use
+            model_path = None
             model_size = "large-v3-turbo"
             models = db.list_models()
             for m in models:
                 if m["engine"] == "whisper":
                     if "turbo" in m["name"]:
+                        model_path = m["path"]
                         model_size = "large-v3-turbo"
                     else:
+                        model_path = m["path"]
                         model_size = "large-v3"
                     break
 
+            if model_path is None:
+                # Fallback to default model_size if no model found
+                model_size = "large-v3-turbo"
+
             gen = transcribe_whisper_chunked(
                 video_path,
+                model_path=model_path,
                 model_size=model_size,
                 language=language,
             )

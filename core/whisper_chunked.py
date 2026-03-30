@@ -19,6 +19,7 @@ from server.config import (
 
 async def transcribe_whisper_chunked(
     video_path: str,
+    model_path: str = None,
     model_size: str = "large-v3-turbo",
     language: str = "hi",
     device: str = "cpu",
@@ -30,6 +31,16 @@ async def transcribe_whisper_chunked(
 
     Processes audio in ~30-second chunks at silence boundaries to manage RAM usage.
     The Whisper model is loaded once and reused across chunks.
+
+    Args:
+        video_path: Path to video file
+        model_path: Path to Whisper model directory (if None, uses model_size with default cache)
+        model_size: Model size name for faster-whisper (used if model_path is None)
+        language: Language code
+        device: Device to run on ("cpu" or "cuda")
+        compute_type: Compute type ("int8", "float16", etc.)
+        max_chunk_duration: Maximum chunk duration in seconds
+        progress_callback: Optional callback for progress updates
 
     Yields:
         (progress_percent, status_message, word_timings_or_none)
@@ -66,6 +77,8 @@ async def transcribe_whisper_chunked(
 
     def _load_model():
         from faster_whisper import WhisperModel
+        if model_path:
+            return WhisperModel(model_path, device=device, compute_type=compute_type)
         return WhisperModel(model_size, device=device, compute_type=compute_type)
 
     try:

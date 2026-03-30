@@ -191,39 +191,67 @@ async def download_whisper_model(
     model_name: str,
     progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> dict:
-    """Download a Whisper model via the faster-whisper library.
+    """Download a Whisper model from HuggingFace Hub.
 
-    This triggers the HuggingFace model download on first use.
+    Downloads model files to the project's models directory for better management.
     """
     if progress_callback:
         await progress_callback(0, f"Downloading {model_name} from HuggingFace...")
 
-    # Map internal name to model size for faster-whisper
-    size_map = {
-        "faster-whisper-large-v3": "large-v3",
-        "faster-whisper-large-v3-turbo": "large-v3-turbo",
+    # Map internal name to HuggingFace repo and model size
+    model_map = {
+        "faster-whisper-large-v3": {
+            "repo": "SygilianAI/Whisper-large-v3",
+            "size": "large-v3",
+        },
+        "faster-whisper-large-v3-turbo": {
+            "repo": "SygilianAI/Whisper-large-v3-turbo",
+            "size": "large-v3-turbo",
+        },
     }
 
-    model_size = size_map.get(model_name)
-    if model_size is None:
+    model_info = model_map.get(model_name)
+    if model_info is None:
         raise ValueError(f"Unknown whisper model: {model_name}")
 
+    repo_id = model_info["repo"]
+    model_size = model_info["size"]
+
+    # Create model directory in project's models folder
+    model_dir = os.path.join(MODELS_DIR, model_name)
+    os.makedirs(model_dir, exist_ok=True)
+
+    # Download using huggingface_hub
     def _download():
-        from faster_whisper import WhisperModel
-        # This will download the model if not cached
-        _ = WhisperModel(model_size, device="cpu", compute_type="int8")
-        return model_size
+        from huggingface_hub import snapshot_download
+
+        # Download model files to our directory
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=model_dir,
+            local_dir_use_symlinks=False,
+        )
+        return model_dir
 
     await asyncio.to_thread(_download)
 
-    # faster-whisper caches in HuggingFace cache dir
-    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+    if progress_callback:
+        await progress_callback(95, "Registering model...")
 
+    # Calculate actual size
+    size = sum(
+        os.path.getsize(os.path.join(dp, f))
+        for dp, _, fnames in os.walk(model_dir)
+        for f in fnames
+    )
+
+    # Register in database
     model = db.register_model(
         name=model_name,
         engine="whisper",
         language="multi",
-        path=cache_dir,
+        path=model_dir,
+        size_bytes=size,
         is_default=False,
     )
 

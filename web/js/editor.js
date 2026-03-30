@@ -965,7 +965,7 @@ function updateWhisperModelStatus() {
     if (!modelSelect) return;
 
     const selectedModel = modelSelect.value;
-    const installed = installedModels.find(m => m.name.includes(selectedModel));
+    const installed = installedModels.find(m => m.name === selectedModel);
 
     if (installed) {
         modelStatus.textContent = '✓ Model installed';
@@ -973,7 +973,7 @@ function updateWhisperModelStatus() {
         modelStatus.classList.remove('text-red-400');
         downloadBtn.classList.add('hidden');
     } else {
-        const modelInfo = availableModels.find(m => m.name.includes(selectedModel));
+        const modelInfo = availableModels.find(m => m.name === selectedModel);
         if (modelInfo) {
             modelStatus.textContent = `Model not installed (${modelInfo.size_mb} MB)`;
             modelStatus.classList.remove('text-green-400');
