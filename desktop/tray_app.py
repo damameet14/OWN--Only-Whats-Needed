@@ -5,6 +5,8 @@ import sys
 import threading
 import webbrowser
 import subprocess
+import requests
+import time
 from PIL import Image, ImageDraw
 
 try:
@@ -14,6 +16,7 @@ except ImportError:
 
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SERVER_URL = "http://localhost:8080"
 
 
 class OWNTrayApp:
@@ -35,9 +38,17 @@ class OWNTrayApp:
 
         icon_image = self._create_icon_image()
 
+        # Create model download submenu
+        model_menu = pystray.Menu(
+            pystray.MenuItem("Large v3 Turbo (800MB)", self._download_whisper_turbo),
+            pystray.MenuItem("Large v3 (3GB)", self._download_whisper_large),
+        )
+
         menu = pystray.Menu(
             pystray.MenuItem("Open OWN", self._open_window, default=True),
             pystray.MenuItem("Open in Browser", self._open_browser),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Download Models", model_menu),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Server Running", None, enabled=False),
             pystray.Menu.SEPARATOR,
@@ -101,3 +112,78 @@ class OWNTrayApp:
                 self.main_window.root.after(0, self.main_window.root.quit)
             except Exception:
                 pass
+
+    def _download_whisper_turbo(self, icon=None, item=None):
+        """Download Whisper Large v3 Turbo model."""
+        self._download_model("faster-whisper-large-v3-turbo")
+
+    def _download_whisper_large(self, icon=None, item=None):
+        """Download Whisper Large v3 model."""
+        self._download_model("faster-whisper-large-v3")
+
+    def _download_model(self, model_name: str):
+        """Download a model in a background thread."""
+        def _download():
+            try:
+                # Start download via API
+                response = requests.post(
+                    f"{self.server_url}/api/models/download",
+                    json={"name": model_name},
+                    timeout=10
+                )
+                response.raise_for_status()
+                data = response.json()
+                task_id = data.get("task_id")
+
+                if task_id:
+                    # Show notification
+                    self._show_notification(f"Downloading {model_name}...")
+
+                    # Poll for progress
+                    while True:
+                        try:
+                            progress_resp = requests.get(
+                                f"{self.server_url}/api/tasks/{task_id}",
+                                timeout=5
+                            )
+                            progress_resp.raise_for_status()
+                            progress_data = progress_resp.json()
+
+                            percent = progress_data.get("percent", 0)
+                            message = progress_data.get("message", "")
+
+                            if percent >= 100 or percent < 0:
+                                self._show_notification(f"{model_name} download complete!")
+                                break
+                            else:
+                                self._show_notification(f"Downloading {model_name}: {percent}%")
+
+                            time.sleep(2)
+                        except requests.exceptions.Timeout:
+                            continue
+                        except Exception as e:
+                            self._show_notification(f"Download error: {e}")
+                            break
+                else:
+                    self._show_notification(f"Failed to start download: {data}")
+            except Exception as e:
+                self._show_notification(f"Download failed: {e}")
+
+        # Run in background thread
+        thread = threading.Thread(target=_download, daemon=True)
+        thread.start()
+
+    def _show_notification(self, message: str):
+        """Show a system notification."""
+        try:
+            if sys.platform == "win32":
+                from win10toast import ToastNotifier
+                toaster = ToastNotifier()
+                toaster.show_toast("OWN", message, duration=5)
+            elif sys.platform == "darwin":
+                # macOS notification
+                os.system(f'osascript -e \'display notification with title "OWN" subtitle "{message}"\'')
+            else:
+                print(f"[OWN Tray] {message}")
+        except Exception:
+            print(f"[OWN Tray] {message}")
