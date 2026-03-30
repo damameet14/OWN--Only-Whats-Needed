@@ -38,17 +38,14 @@ class OWNTrayApp:
 
         icon_image = self._create_icon_image()
 
-        # Create model download submenu
-        model_menu = pystray.Menu(
-            pystray.MenuItem("Large v3 Turbo (800MB)", self._download_whisper_turbo),
-            pystray.MenuItem("Large v3 (3GB)", self._download_whisper_large),
-        )
-
         menu = pystray.Menu(
             pystray.MenuItem("Open OWN", self._open_window, default=True),
             pystray.MenuItem("Open in Browser", self._open_browser),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Download Models", model_menu),
+            pystray.MenuItem("Download Models", pystray.Menu(
+                pystray.MenuItem("Large v3 Turbo (800MB)", self._download_whisper_turbo),
+                pystray.MenuItem("Large v3 (3GB)", self._download_whisper_large),
+            )),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Server Running", None, enabled=False),
             pystray.Menu.SEPARATOR,
