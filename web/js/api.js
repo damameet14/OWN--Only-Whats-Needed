@@ -66,10 +66,25 @@ async function deleteProject(id) {
 
 // ── Transcription ────────────────────────────────────────────────────────────
 
-async function startTranscription(projectId, engine = 'vosk', language = 'hi') {
+async function startTranscription(projectId, options = {}) {
+    // Support both positional args (engine, language) and options object
+    let body;
+    if (typeof options === 'string') {
+        // Legacy: startTranscription(id, engine, language)
+        const engine = options;
+        const language = arguments[2] || 'hi';
+        body = { engine, language };
+    } else {
+        // New: startTranscription(id, { engine, language, model })
+        body = {
+            engine: options.engine || 'vosk',
+            language: options.language || 'hi',
+            ...(options.model ? { model: options.model } : {}),
+        };
+    }
     return apiRequest(`/api/projects/${projectId}/transcribe`, {
         method: 'POST',
-        body: JSON.stringify({ engine, language }),
+        body: JSON.stringify(body),
     });
 }
 

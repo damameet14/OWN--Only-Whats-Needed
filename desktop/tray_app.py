@@ -43,8 +43,13 @@ class OWNTrayApp:
             pystray.MenuItem("Open in Browser", self._open_browser),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Download Models", pystray.Menu(
-                pystray.MenuItem("Large v3 Turbo (800MB)", self._download_whisper_turbo),
-                pystray.MenuItem("Large v3 (3GB)", self._download_whisper_large),
+                pystray.MenuItem("Whisper Large v3 Turbo (800MB)", self._download_whisper_turbo),
+                pystray.MenuItem("Whisper Large v3 (3GB)", self._download_whisper_large),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Hindi Large (Vosk, 1.5GB)", lambda icon, item: self._download_model("vosk-model-hi-0.22")),
+                pystray.MenuItem("Hindi Small (Vosk, 42MB)", lambda icon, item: self._download_model("vosk-model-small-hi-0.22")),
+                pystray.MenuItem("English Large (Vosk, 1.8GB)", lambda icon, item: self._download_model("vosk-model-en-us-0.22")),
+                pystray.MenuItem("English Small (Vosk, 40MB)", lambda icon, item: self._download_model("vosk-model-small-en-us-0.15")),
             )),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Server Running", None, enabled=False),
@@ -149,11 +154,12 @@ class OWNTrayApp:
                             percent = progress_data.get("percent", 0)
                             message = progress_data.get("message", "")
 
-                            if percent >= 100 or percent < 0:
+                            if percent >= 100:
                                 self._show_notification(f"{model_name} download complete!")
                                 break
-                            else:
-                                self._show_notification(f"Downloading {model_name}: {percent}%")
+                            elif percent < 0:
+                                self._show_notification(f"{model_name} download failed: {message}")
+                                break
 
                             time.sleep(2)
                         except requests.exceptions.Timeout:

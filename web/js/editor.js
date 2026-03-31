@@ -831,7 +831,8 @@ function initTranscription() {
 
     btnStart.addEventListener('click', async () => {
         const engine = document.getElementById('transcribe-engine')?.value || 'vosk';
-        const model = document.getElementById('transcribe-model')?.value || null;
+        const model = (engine === 'whisper') ? (document.getElementById('transcribe-model')?.value || null) : null;
+        const language = project?.language || 'hi';
 
         const progressWrap = document.getElementById('transcribe-progress-wrap');
         const statusEl = document.getElementById('transcribe-status');
@@ -842,7 +843,7 @@ function initTranscription() {
         buttons.classList.add('hidden');
 
         try {
-            const { task_id } = await startTranscription(project.id, { engine, model });
+            const { task_id } = await startTranscription(project.id, { engine, language, model });
 
             watchProgress(task_id,
                 (data) => {

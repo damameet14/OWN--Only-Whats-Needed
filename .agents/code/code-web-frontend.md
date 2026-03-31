@@ -1,7 +1,7 @@
 # Code Context: Web Frontend
 
 ## Last Updated
-2026-03-21
+2026-03-31
 
 ## Overview
 Vanilla HTML/CSS/JS web application served as static files by FastAPI. Two pages: home (upload + project grid) and editor (video preview + subtitle styling + timeline). Uses Tailwind CSS CDN for layout and custom CSS for theming.
@@ -31,7 +31,7 @@ Vanilla HTML/CSS/JS web application served as static files by FastAPI. Two pages
 | `apiRequest` | fn | `web/js/api.js` | Generic fetch wrapper | All API functions |
 | `watchProgress` | fn | `web/js/api.js` | WebSocket progress listener | Upload, export flows |
 | `createProject` | fn | `web/js/api.js` | POST /api/projects | `app.js:uploadAndTranscribe` |
-| `startTranscription` | fn | `web/js/api.js` | POST /api/projects/{id}/transcribe | `app.js:uploadAndTranscribe` |
+| `startTranscription` | fn | `web/js/api.js` | POST /api/projects/{id}/transcribe (accepts options object {engine, language, model}) | `app.js:uploadAndTranscribe`, `editor.js:initTranscription` |
 | `loadProjects` | fn | `web/js/app.js` | Fetches and renders project grid | Page load |
 | `uploadAndTranscribe` | fn | `web/js/app.js` | Full upload → transcribe → redirect flow | Upload zone |
 | `SubtitlePreview` | class | `web/js/preview.js` | Canvas subtitle renderer with animations | `editor.js` |
@@ -61,3 +61,4 @@ Vanilla HTML/CSS/JS web application served as static files by FastAPI. Two pages
 | 2026-03-21 | Added video and subtitle properties handles (`editor.js`, `preview.js`) and throttled timeline canvas scrubbing events (`timeline.js`) to resolve stutter. |
 | 2026-03-21 | Updated `editor.html` and `timeline.js` to support timeline resizing, split/trim buttons, and pre-rendered Sprite/Waveform visual assets. |
 | 2026-03-21 | Implemented Split and Trim core logic in `editor.js`, cached-busted JS files in `editor.html`, and updated `timeline.js` so that tracks align cleanly to the sticky headers and the playhead is clamped to the left panel border. |
+| 2026-03-31 | Fixed `startTranscription()` in `api.js` to accept options object `{engine, language, model}` for proper Whisper model selection. Fixed `editor.js` transcription call to pass language and model correctly instead of an object as string arg. |

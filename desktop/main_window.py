@@ -109,37 +109,84 @@ class OWNMainWindow:
         ).pack(pady=10)
 
     def _list_local_models(self):
-        """Scan for Vosk model directories in the project root."""
+        """Scan for both Vosk and Whisper models and show download status."""
+        import requests
         for widget in self.models_frame.winfo_children():
             widget.destroy()
 
-        model_dirs = [
+        # Get installed models from root (Vosk)
+        vosk_model_dirs = [
             d for d in os.listdir(_PROJECT_ROOT)
             if os.path.isdir(os.path.join(_PROJECT_ROOT, d))
             and d.startswith("vosk-model")
         ]
 
-        if not model_dirs:
-            ctk.CTkLabel(self.models_frame, text="No models found. Download one via the web UI.",
+        # Get installed models from models/ directory (Whisper)
+        models_dir = os.path.join(_PROJECT_ROOT, "models")
+        whisper_model_dirs = []
+        if os.path.isdir(models_dir):
+            whisper_model_dirs = [
+                d for d in os.listdir(models_dir)
+                if os.path.isdir(os.path.join(models_dir, d))
+                and (d.startswith("faster-whisper") or d.startswith("whisper"))
+            ]
+
+        installed_names = set(vosk_model_dirs + whisper_model_dirs)
+
+        # Get all available models from API
+        try:
+            resp = requests.get(f"{self.server_url}/api/models/available", timeout=5)
+            available_models = resp.json() if resp.status_code == 200 else []
+        except Exception:
+            available_models = []
+
+        # List models
+        if not available_models and not installed_names:
+            ctk.CTkLabel(self.models_frame, text="No models found. Check server connection.",
                           font=("Inter", 12), text_color="#a8a48e").pack(pady=20)
             return
 
-        for model_name in model_dirs:
-            model_path = os.path.join(_PROJECT_ROOT, model_name)
-            size = sum(
-                os.path.getsize(os.path.join(dp, f))
-                for dp, _, fnames in os.walk(model_path)
-                for f in fnames
-            )
-            size_mb = size / (1024 * 1024)
+        for model_info in available_models:
+            name = model_info["name"]
+            label = model_info["label"]
+            is_installed = model_info.get("installed", False) or name in installed_names
 
             row = ctk.CTkFrame(self.models_frame, fg_color="#23200f", corner_radius=8)
             row.pack(fill="x", pady=4, padx=4)
 
-            ctk.CTkLabel(row, text=f"📦 {model_name}", font=("Inter", 13, "bold"),
+            # Icon based on engine
+            icon = "🎙️" if model_info.get("engine") == "whisper" else "📦"
+            
+            ctk.CTkLabel(row, text=f"{icon} {label}", font=("Inter", 12, "bold"),
                           text_color="#fff").pack(side="left", padx=12, pady=10)
-            ctk.CTkLabel(row, text=f"{size_mb:.0f} MB", font=("Inter", 11),
-                          text_color="#a8a48e").pack(side="right", padx=12, pady=10)
+
+            if is_installed:
+                ctk.CTkLabel(row, text="Installed", font=("Inter", 11),
+                              text_color="#34d399").pack(side="right", padx=12, pady=10)
+            else:
+                btn = ctk.CTkButton(
+                    row, text="Download", font=("Inter", 10, "bold"),
+                    fg_color="#ffe74d", text_color="#23200f",
+                    width=80, height=26, corner_radius=6,
+                    command=lambda n=name: self._download_model(n)
+                )
+                btn.pack(side="right", padx=12, pady=8)
+
+    def _download_model(self, model_name):
+        """Trigger model download via API."""
+        import requests
+        try:
+            resp = requests.post(
+                f"{self.server_url}/api/models/download",
+                json={"name": model_name},
+                timeout=5
+            )
+            if resp.status_code == 200:
+                print(f"Started download for {model_name}")
+                # Refresh UI after a bit
+                self.root.after(2000, self._list_local_models)
+        except Exception as e:
+            print(f"Download error: {e}")
 
     def _build_users_tab(self):
         tab = self.tabs.add("Users")

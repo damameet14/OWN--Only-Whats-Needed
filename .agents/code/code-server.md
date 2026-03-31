@@ -1,7 +1,7 @@
 # Code Context: Server (FastAPI Backend)
 
 ## Last Updated
-2026-03-21
+2026-03-31
 
 ## Overview
 FastAPI backend serving REST API, WebSocket progress, SQLite database, and static web files. Handles project CRUD, transcription orchestration, export jobs, model management, and user profiles.
@@ -66,4 +66,6 @@ FastAPI backend serving REST API, WebSocket progress, SQLite database, and stati
 | 2026-03-20 | Initial creation: config, database, model_manager, app |
 | 2026-03-21 | Added `generate_timeline_assets` integration in `app.py` |
 | 2026-03-21 | Fixed python cross-platform lint errors for `subprocess.CREATE_NO_WINDOW` in `core/timeline_utils.py` |
+| 2026-03-31 | Fixed `_run_transcription()` to accept and use `model_name` param for whisper model selection instead of picking first found |
+| 2026-03-31 | Fixed whisper model repos in `model_manager.py` from PyTorch format (openai/SygilianAI) to CTranslate2 format (Systran). Added model.bin validation in `app.py` to detect wrong-format models and fallback to auto-download. |
 

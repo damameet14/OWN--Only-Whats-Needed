@@ -1,10 +1,13 @@
 """Silence detection module for intelligent audio chunking."""
 
 from __future__ import annotations
+import logging
 import subprocess
 import sys
 import re
 import asyncio
+
+logger = logging.getLogger(__name__)
 
 
 async def detect_silence_boundaries(
@@ -27,32 +30,40 @@ async def detect_silence_boundaries(
     Returns:
         List of (start_time, end_time) tuples for each chunk
     """
+    logger.info(f"[SILENCE] Detecting boundaries: wav_path={wav_path}, min_silence={min_silence_duration}s, threshold={silence_threshold}dB, max_chunk={max_chunk_duration}s")
+
     # Get audio duration first
     duration = await _get_audio_duration(wav_path)
+    logger.info(f"[SILENCE] Audio duration: {duration:.2f}s")
 
     if duration <= max_chunk_duration:
         # No need to chunk
+        logger.info(f"[SILENCE] Duration {duration:.2f}s <= max_chunk {max_chunk_duration}s, no chunking needed")
         return [(0.0, duration)]
 
     # Run FFmpeg silence detection
     silence_regions = await _detect_silence_with_ffmpeg(
         wav_path, min_silence_duration, silence_threshold
     )
+    logger.info(f"[SILENCE] Found {len(silence_regions)} silence regions")
 
     if not silence_regions:
         # No silence found, fall back to fixed chunks
+        logger.info("[SILENCE] No silence detected, using fixed chunks")
         return _create_fixed_chunks(duration, max_chunk_duration)
 
     # Generate chunk boundaries at silence midpoints
     chunks = _create_chunks_from_silence(
         duration, silence_regions, max_chunk_duration
     )
+    logger.info(f"[SILENCE] Created {len(chunks)} chunks from silence")
 
     return chunks
 
 
 async def _get_audio_duration(wav_path: str) -> float:
     """Get audio duration using FFprobe."""
+    logger.debug(f"[SILENCE] Getting audio duration for: {wav_path}")
     cmd = [
         "ffprobe", "-v", "error",
         "-show_entries", "format=duration",
@@ -69,9 +80,12 @@ async def _get_audio_duration(wav_path: str) -> float:
     )
 
     if result.returncode != 0:
+        logger.error(f"[SILENCE] Failed to get audio duration: {result.stderr.decode()}")
         raise RuntimeError(f"Failed to get audio duration: {result.stderr.decode()}")
 
-    return float(result.stdout.decode().strip())
+    duration = float(result.stdout.decode().strip())
+    logger.debug(f"[SILENCE] Audio duration: {duration:.2f}s")
+    return duration
 
 
 async def _detect_silence_with_ffmpeg(
@@ -80,6 +94,7 @@ async def _detect_silence_with_ffmpeg(
     silence_threshold: float,
 ) -> list[tuple[float, float]]:
     """Run FFmpeg silencedetect and parse output."""
+    logger.debug(f"[SILENCE] Running FFmpeg silencedetect: threshold={silence_threshold}dB, duration={min_silence_duration}s")
     cmd = [
         "ffmpeg", "-v", "info",
         "-i", wav_path,
@@ -87,6 +102,7 @@ async def _detect_silence_with_ffmpeg(
         "-f", "null",
         "-"
     ]
+    logger.debug(f"[SILENCE] Running command: {' '.join(cmd)}")
 
     result = await asyncio.to_thread(
         subprocess.run,
@@ -96,7 +112,12 @@ async def _detect_silence_with_ffmpeg(
         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
 
+    if result.returncode != 0:
+        logger.error(f"[SILENCE] FFmpeg failed with returncode={result.returncode}")
+        logger.error(f"[SILENCE] stderr={result.stderr.decode(errors='replace')[:500]}")
+
     stderr = result.stderr.decode(errors="replace")
+    logger.debug(f"[SILENCE] FFmpeg stderr (first 500 chars): {stderr[:500]}")
 
     # Parse silence detection output
     silence_regions = []
@@ -118,6 +139,7 @@ async def _detect_silence_with_ffmpeg(
         if end_match and current_start is not None:
             current_end = float(end_match.group(1))
             silence_regions.append((current_start, current_end))
+            logger.debug(f"[SILENCE] Found silence: {current_start:.2f}s - {current_end:.2f}s")
             current_start = None
 
     return silence_regions

@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -26,6 +27,16 @@ from models.subtitle import SubtitleTrack, WordTiming
 from core.video_utils import get_video_info
 from core.srt_utils import generate_srt
 from core.timeline_utils import generate_timeline_assets
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -205,14 +216,18 @@ async def delete_project(project_id: int):
 @app.post("/api/projects/{project_id}/transcribe")
 async def start_transcription(project_id: int, body: dict = None):
     """Start transcription for a project. Returns a task_id for progress tracking."""
+    logger.info(f"[API] POST /api/projects/{project_id}/transcribe - body={body}")
     project = db.get_project(project_id)
     if not project:
+        logger.error(f"[API] Project {project_id} not found")
         raise HTTPException(404, "Project not found")
 
     body = body or {}
     engine = body.get("engine", "vosk")  # "vosk" or "whisper"
     model = body.get("model")  # Optional specific model name
     language = body.get("language", project.get("language", "hi"))
+
+    logger.info(f"[TRANSCRIBE] project={project_id}, engine={engine!r}, model={model!r}, language={language!r}, body={body}")
 
     # Validate model is installed if specified
     if model:
@@ -223,6 +238,7 @@ async def start_transcription(project_id: int, body: dict = None):
                 model_found = True
                 break
         if not model_found:
+            logger.error(f"[TRANSCRIBE] Model '{model}' not installed")
             raise HTTPException(400, f"Model '{model}' not installed. Please download it first.")
 
     task_id = uuid.uuid4().hex
@@ -230,44 +246,67 @@ async def start_transcription(project_id: int, body: dict = None):
     _task_events[task_id] = asyncio.Event()
 
     # Run transcription in background
-    asyncio.create_task(_run_transcription(task_id, project, engine, language))
+    asyncio.create_task(_run_transcription(task_id, project, engine, language, model))
 
     db.update_project(project_id, status="transcribing")
+    logger.info(f"[TRANSCRIBE] Started task {task_id} for project {project_id}")
     return {"task_id": task_id}
 
 
-async def _run_transcription(task_id: str, project: dict, engine: str, language: str):
+async def _run_transcription(task_id: str, project: dict, engine: str, language: str, model_name: str = None):
     """Background task for transcription."""
+    logger.info(f"[_run_transcription] START engine={engine!r}, language={language!r}, model_name={model_name!r}")
+    logger.info(f"[_run_transcription] project keys: {list(project.keys())}")
     try:
         video_path = project["video_path"]
+        logger.info(f"[_run_transcription] video_path={video_path!r}, exists={os.path.exists(video_path)}")
 
         if engine == "whisper":
+            logger.info(f"[_run_transcription] Importing transcribe_whisper_chunked...")
             from core.whisper_chunked import transcribe_whisper_chunked
 
             # Find the whisper model to use
             model_path = None
             model_size = "large-v3-turbo"
             models = db.list_models()
-            for m in models:
-                if m["engine"] == "whisper":
-                    if "turbo" in m["name"]:
+            logger.info(f"[_run_transcription] installed models: {[m['name'] for m in models]}")
+
+            if model_name:
+                # User specified a model — find it by name
+                for m in models:
+                    if m["name"] == model_name and m["engine"] == "whisper":
                         model_path = m["path"]
-                        model_size = "large-v3-turbo"
-                    else:
-                        model_path = m["path"]
-                        model_size = "large-v3"
-                    break
+                        model_size = "large-v3-turbo" if "turbo" in m["name"] else "large-v3"
+                        break
 
             if model_path is None:
-                # Fallback to default model_size if no model found
+                # Fallback: pick any installed whisper model
+                for m in models:
+                    if m["engine"] == "whisper":
+                        model_path = m["path"]
+                        model_size = "large-v3-turbo" if "turbo" in m["name"] else "large-v3"
+                        break
+
+            if model_path is None:
+                # No model installed at all — use default model_size (will auto-download)
                 model_size = "large-v3-turbo"
 
+            # Validate that the model directory has CTranslate2 format (model.bin)
+            # If it has model.safetensors instead, it was downloaded from the wrong repo
+            if model_path and not os.path.isfile(os.path.join(model_path, "model.bin")):
+                logger.info(f"[_run_transcription] WARNING: model_path {model_path!r} has no model.bin (wrong format). Falling back to model_size={model_size!r}")
+                model_path = None  # Will use model_size string for auto-download
+
+            logger.info(f"[_run_transcription] WHISPER model_path={model_path!r}, model_size={model_size!r}")
+
+            logger.info(f"[_run_transcription] Creating transcribe_whisper_chunked generator...")
             gen = transcribe_whisper_chunked(
                 video_path,
                 model_path=model_path,
                 model_size=model_size,
                 language=language,
             )
+            logger.info(f"[_run_transcription] Generator created, starting iteration...")
         else:
             from core.transcriber import transcribe_vosk
 
@@ -288,12 +327,18 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
             gen = transcribe_vosk(video_path, model_path=model_path)
 
         words = None
+        iteration_count = 0
         async for progress, message, result in gen:
+            iteration_count += 1
+            logger.info(f"[_run_transcription] Iteration {iteration_count}: progress={progress}%, message={message!r}, result_is_none={result is None}")
             _tasks[task_id] = {"percent": progress, "message": message, "result": None}
             _task_events[task_id].set()
             _task_events[task_id] = asyncio.Event()
             if result is not None:
                 words = result
+                logger.info(f"[_run_transcription] Got result with {len(words)} words")
+
+        logger.info(f"[_run_transcription] Generator iteration complete. Total iterations: {iteration_count}")
 
         if words:
             # Build subtitle track
@@ -313,6 +358,7 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
                 "result": {"word_count": len(words)},
             }
         else:
+            logger.info(f"[_run_transcription] No words detected")
             db.update_project(project["id"], status="draft")
             _tasks[task_id] = {
                 "percent": 100,
@@ -321,9 +367,13 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
             }
 
     except Exception as e:
+        import traceback
+        logger.info(f"[_run_transcription] ERROR: {e}")
+        traceback.print_exc()
         _tasks[task_id] = {"percent": -1, "message": f"Error: {e}", "result": None}
         db.update_project(project["id"], status="draft")
 
+    logger.info(f"[_run_transcription] END")
     _task_events.get(task_id, asyncio.Event()).set()
 
 
@@ -597,6 +647,15 @@ async def get_presets():
         with open(PRESETS_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
     return []
+
+
+@app.get("/api/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """Get the current status of a background task."""
+    task = _tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    return task
 
 
 # ── WebSocket progress ────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 """Model download manager — registry of available Vosk/Whisper models."""
 
+import logging
 import os
 import zipfile
 import shutil
@@ -10,6 +11,11 @@ import requests
 
 from server.config import MODELS_DIR, PROJECT_ROOT
 from server import database as db
+
+# Suppress logging for download libraries
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("requests").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.ERROR)
 
 
 # ── Available Model Registry ──────────────────────────────────────────────────
@@ -199,13 +205,14 @@ async def download_whisper_model(
         await progress_callback(0, f"Downloading {model_name} from HuggingFace...")
 
     # Map internal name to HuggingFace repo and model size
+    # IMPORTANT: faster-whisper requires CTranslate2-format models, NOT PyTorch/safetensors.
     model_map = {
         "faster-whisper-large-v3": {
-            "repo": "SygilianAI/Whisper-large-v3",
+            "repo": "Systran/faster-whisper-large-v3",
             "size": "large-v3",
         },
         "faster-whisper-large-v3-turbo": {
-            "repo": "SygilianAI/Whisper-large-v3-turbo",
+            "repo": "deepdml/faster-whisper-large-v3-turbo-ct2",
             "size": "large-v3-turbo",
         },
     }
@@ -223,13 +230,16 @@ async def download_whisper_model(
 
     # Download using huggingface_hub
     def _download():
+        import logging
         from huggingface_hub import snapshot_download
+
+        # Suppress huggingface_hub logs
+        logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
         # Download model files to our directory
         snapshot_download(
             repo_id=repo_id,
             local_dir=model_dir,
-            local_dir_use_symlinks=False,
         )
         return model_dir
 
