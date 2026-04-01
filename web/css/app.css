@@ -190,3 +190,21 @@ select option {
     color: var(--primary);
     border-bottom-color: var(--primary);
 }
+
+/* Sub-tab buttons */
+.sub-tab-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+.sub-tab-btn:hover {
+    color: var(--text-primary);
+}
+.sub-tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}

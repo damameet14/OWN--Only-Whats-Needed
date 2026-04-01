@@ -20,8 +20,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadProject(projectId);
     initVideoPlayer();
     initTimelineControls();
-    initStyleControls();
-    initTabSwitching();
+    initStylingSystem();  // Replaces initStyleControls and initTabSwitching
     initFullTextEditing();
     initExport();
     initSrtDownload();
@@ -556,154 +555,8 @@ function initFullTextEditing() {
 
 // ── Style Controls ───────────────────────────────────────────────────────────
 
-function initStyleControls() {
-    // Font size
-    const fontSizeSlider = document.getElementById('style-font-size');
-    const fontSizeVal = document.getElementById('font-size-val');
-    fontSizeSlider.addEventListener('input', () => {
-        fontSizeVal.textContent = fontSizeSlider.value;
-        updateStyle('font_size', parseInt(fontSizeSlider.value));
-    });
-
-    // Font family
-    document.getElementById('style-font').addEventListener('change', (e) => {
-        updateStyle('font_family', e.target.value);
-    });
-
-    // Colors
-    document.getElementById('style-text-color').addEventListener('input', (e) => {
-        updateStyle('text_color', e.target.value);
-    });
-    document.getElementById('style-outline-color').addEventListener('input', (e) => {
-        updateStyle('outline_color', e.target.value);
-    });
-
-    // Outline width
-    const outlineSlider = document.getElementById('style-outline-width');
-    const outlineVal = document.getElementById('outline-w-val');
-    outlineSlider.addEventListener('input', () => {
-        outlineVal.textContent = outlineSlider.value;
-        updateStyle('outline_width', parseInt(outlineSlider.value));
-    });
-
-    // Bold / Italic
-    document.getElementById('style-bold').addEventListener('click', (e) => {
-        const btn = e.currentTarget;
-        const isBold = btn.classList.toggle('bg-primary/30');
-        updateStyle('bold', isBold);
-    });
-    document.getElementById('style-italic').addEventListener('click', (e) => {
-        const btn = e.currentTarget;
-        const isItalic = btn.classList.toggle('bg-primary/30');
-        updateStyle('italic', isItalic);
-    });
-
-    // Position Y
-    const posYSlider = document.getElementById('style-pos-y');
-    const posYVal = document.getElementById('pos-y-val');
-    posYSlider.addEventListener('input', () => {
-        posYVal.textContent = `${posYSlider.value}%`;
-        if (subtitleTrack) {
-            subtitleTrack.position_y = parseInt(posYSlider.value) / 100;
-            preview?.setTrack(subtitleTrack);
-            autoSave();
-        }
-    });
-
-    // Words per line
-    const wplSlider = document.getElementById('style-wpl');
-    const wplVal = document.getElementById('wpl-val');
-    wplSlider.addEventListener('input', () => {
-        wplVal.textContent = wplSlider.value;
-        if (subtitleTrack) {
-            subtitleTrack.words_per_line = parseInt(wplSlider.value);
-            // Re-segment subtitles with new WPL
-            if (subtitleTrack.segments && subtitleTrack.segments.length > 0) {
-                // Collect all words from all segments
-                const allWords = [];
-                for (const seg of subtitleTrack.segments) {
-                    allWords.push(...seg.words);
-                }
-                // Rebuild segments with new WPL
-                subtitleTrack.segments = [];
-                for (let i = 0; i < allWords.length; i += subtitleTrack.words_per_line) {
-                    const chunk = allWords.slice(i, i + subtitleTrack.words_per_line);
-                    subtitleTrack.segments.push({
-                        words: chunk,
-                        style: subtitleTrack.global_style || {}
-                    });
-                }
-                // Update UI
-                populateSegments(subtitleTrack.segments);
-                populateFullText(subtitleTrack.segments);
-                preview?.setTrack(subtitleTrack);
-                timeline?.setData(subtitleTrack, project.video_duration, project.id);
-            }
-            autoSave();
-        }
-    });
-
-    // Subtitle Rotation
-    const subRotSlider = document.getElementById('style-sub-rotation');
-    const subRotVal = document.getElementById('sub-rot-val');
-    if (subRotSlider) {
-        subRotSlider.addEventListener('input', () => {
-            subRotVal.textContent = `${subRotSlider.value}°`;
-            updateStyle('rotation', parseInt(subRotSlider.value));
-        });
-    }
-
-    // Video Rotation
-    const vidRotSlider = document.getElementById('style-vid-rotation');
-    const vidRotVal = document.getElementById('vid-rot-val');
-    if (vidRotSlider) {
-        vidRotSlider.addEventListener('input', () => {
-            vidRotVal.textContent = `${vidRotSlider.value}°`;
-            if (subtitleTrack) {
-                subtitleTrack.video_rotation = parseInt(vidRotSlider.value);
-                const video = document.getElementById('video-player');
-                if (video) {
-                    video.style.transform = `rotate(${subtitleTrack.video_rotation}deg)`;
-                }
-                autoSave();
-            }
-        });
-    }
-
-    // Shadow toggle
-    document.getElementById('style-shadow').addEventListener('change', (e) => {
-        if (e.target.checked) {
-            updateStyle('shadow_color', '#80000000');
-            updateStyle('shadow_offset_x', 2);
-            updateStyle('shadow_offset_y', 2);
-        } else {
-            updateStyle('shadow_color', '');
-            updateStyle('shadow_offset_x', 0);
-            updateStyle('shadow_offset_y', 0);
-        }
-    });
-
-    // Animation type
-    document.getElementById('style-animation').addEventListener('change', (e) => {
-        if (subtitleTrack) {
-            subtitleTrack.animation_type = e.target.value;
-            preview?.setTrack(subtitleTrack);
-            autoSave();
-        }
-    });
-
-    // Animation duration
-    const animDurSlider = document.getElementById('style-anim-duration');
-    const animDurVal = document.getElementById('anim-dur-val');
-    animDurSlider.addEventListener('input', () => {
-        animDurVal.textContent = `${animDurSlider.value}s`;
-        if (subtitleTrack) {
-            subtitleTrack.animation_duration = parseFloat(animDurSlider.value);
-            preview?.setTrack(subtitleTrack);
-            autoSave();
-        }
-    });
-}
+// Note: initStyleControls has been replaced by initGlobalStyleControls
+// which uses the new ID structure (global-*, special-*)
 
 function updateStyle(prop, value) {
     if (!subtitleTrack) return;
@@ -734,22 +587,22 @@ function applyTrackToControls(track) {
         if (el) el.value = val;
     };
 
-    setVal('style-font', style.font_family || 'Noto Sans Devanagari');
-    setVal('style-font-size', style.font_size || 48);
-    document.getElementById('font-size-val').textContent = style.font_size || 48;
-    setVal('style-text-color', style.text_color || '#FFFFFF');
-    setVal('style-outline-color', style.outline_color || '#000000');
-    setVal('style-outline-width', style.outline_width ?? 2);
-    document.getElementById('outline-w-val').textContent = style.outline_width ?? 2;
-    setVal('style-pos-y', Math.round((track.position_y || 0.9) * 100));
-    document.getElementById('pos-y-val').textContent = `${Math.round((track.position_y || 0.9) * 100)}%`;
+    setVal('global-font', style.font_family || 'Noto Sans Devanagari');
+    setVal('global-font-size', style.font_size || 48);
+    document.getElementById('global-font-size-val').textContent = style.font_size || 48;
+    setVal('global-text-color', style.text_color || '#FFFFFF');
+    setVal('global-outline-color', style.outline_color || '#000000');
+    setVal('global-outline-width', style.outline_width ?? 2);
+    document.getElementById('global-outline-w-val').textContent = style.outline_width ?? 2;
+    setVal('global-pos-y', Math.round((track.position_y || 0.9) * 100));
+    document.getElementById('global-pos-y-val').textContent = `${Math.round((track.position_y || 0.9) * 100)}%`;
 
-    setVal('style-sub-rotation', style.rotation || 0);
-    const subVal = document.getElementById('sub-rot-val');
+    setVal('global-sub-rotation', style.rotation || 0);
+    const subVal = document.getElementById('global-sub-rot-val');
     if (subVal) subVal.textContent = `${style.rotation || 0}°`;
 
-    setVal('style-vid-rotation', track.video_rotation || 0);
-    const vidVal = document.getElementById('vid-rot-val');
+    setVal('global-vid-rotation', track.video_rotation || 0);
+    const vidVal = document.getElementById('global-vid-rot-val');
     if (vidVal) vidVal.textContent = `${track.video_rotation || 0}°`;
 
     const video = document.getElementById('video-player');
@@ -757,15 +610,15 @@ function applyTrackToControls(track) {
         video.style.transform = `rotate(${track.video_rotation || 0}deg)`;
     }
 
-    setVal('style-wpl', track.words_per_line || 4);
-    document.getElementById('wpl-val').textContent = track.words_per_line || 4;
-    setVal('style-animation', track.animation_type || 'none');
-    setVal('style-anim-duration', track.animation_duration || 0.3);
-    document.getElementById('anim-dur-val').textContent = `${track.animation_duration || 0.3}s`;
+    setVal('global-wpl', track.words_per_line || 4);
+    document.getElementById('global-wpl-val').textContent = track.words_per_line || 4;
+    setVal('global-animation', track.animation_type || 'none');
+    setVal('global-anim-duration', track.animation_duration || 0.3);
+    document.getElementById('global-anim-dur-val').textContent = `${track.animation_duration || 0.3}s`;
 
-    if (style.bold) document.getElementById('style-bold').classList.add('bg-primary/30');
-    if (style.italic) document.getElementById('style-italic').classList.add('bg-primary/30');
-    document.getElementById('style-shadow').checked = !!(style.shadow_color);
+    if (style.bold) document.getElementById('global-bold').classList.add('bg-primary/30');
+    if (style.italic) document.getElementById('global-italic').classList.add('bg-primary/30');
+    document.getElementById('global-shadow').checked = !!(style.shadow_color);
 }
 
 
@@ -1115,4 +968,732 @@ function updateWhisperModelStatus() {
 // Initialize model selection on page load
 document.addEventListener('DOMContentLoaded', () => {
     initModelSelection();
+});
+
+
+// ── Special Words & Groups System ─────────────────────────────────────────────
+
+// Track selected words: array of {segmentIndex, wordIndex}
+let selectedWords = [];
+let currentGroupId = null;  // Currently selected group
+
+// Initialize the new styling system
+function initStylingSystem() {
+    initMainTabSwitching();
+    initSubTabSwitching();
+    initContextMenu();
+    initSpecialStyleControls();
+    initGlobalStyleControls();
+    initDeselectOnEscape();
+}
+
+// Main tab switching (Style / Presets)
+function initMainTabSwitching() {
+    document.querySelectorAll('[data-main-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-main-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const tab = btn.dataset.mainTab;
+            document.getElementById('style-section').classList.toggle('hidden', tab !== 'style');
+            document.getElementById('presets-section').classList.toggle('hidden', tab !== 'presets');
+        });
+    });
+}
+
+// Sub tab switching (All / Specials)
+function initSubTabSwitching() {
+    document.querySelectorAll('[data-sub-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-sub-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const tab = btn.dataset.subTab;
+            document.getElementById('all-subsection').classList.toggle('hidden', tab !== 'all');
+            document.getElementById('specials-subsection').classList.toggle('hidden', tab !== 'specials');
+
+            // Update specials panel based on selection
+            updateSpecialsPanel();
+        });
+    });
+
+    // All subsection tabs
+    document.querySelectorAll('[data-all-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-all-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const tab = btn.dataset.allTab;
+            document.getElementById('all-text-panel').classList.toggle('hidden', tab !== 'text');
+            document.getElementById('all-templates-panel').classList.toggle('hidden', tab !== 'templates');
+            document.getElementById('all-animation-panel').classList.toggle('hidden', tab !== 'animation');
+        });
+    });
+
+    // Specials subsection tabs
+    document.querySelectorAll('[data-special-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-special-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const tab = btn.dataset.specialTab;
+            document.getElementById('specials-text-panel').classList.toggle('hidden', tab !== 'text');
+            document.getElementById('specials-templates-panel').classList.toggle('hidden', tab !== 'templates');
+            document.getElementById('specials-animation-panel').classList.toggle('hidden', tab !== 'animation');
+        });
+    });
+
+    // Presets section tabs
+    document.querySelectorAll('[data-preset-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-preset-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const tab = btn.dataset.presetTab;
+            document.getElementById('presets-panel').classList.toggle('hidden', tab !== 'presets');
+            document.getElementById('presets-templates-panel').classList.toggle('hidden', tab !== 'templates');
+        });
+    });
+}
+
+// Update the specials panel based on current selection
+function updateSpecialsPanel() {
+    const emptyState = document.getElementById('specials-empty');
+    const textPanel = document.getElementById('specials-text-panel');
+    const templatesPanel = document.getElementById('specials-templates-panel');
+    const animationPanel = document.getElementById('specials-animation-panel');
+
+    if (selectedWords.length === 0) {
+        emptyState.classList.remove('hidden');
+        textPanel.classList.add('hidden');
+        templatesPanel.classList.add('hidden');
+        animationPanel.classList.add('hidden');
+    } else {
+        emptyState.classList.add('hidden');
+        // Show the active tab panel
+        const activeTab = document.querySelector('[data-special-tab].active')?.dataset.specialTab || 'text';
+        textPanel.classList.toggle('hidden', activeTab !== 'text');
+        templatesPanel.classList.toggle('hidden', activeTab !== 'templates');
+        animationPanel.classList.toggle('hidden', activeTab !== 'animation');
+
+        // Load the style for the selected words
+        loadSpecialStyle();
+    }
+}
+
+// Load special style into the controls
+function loadSpecialStyle() {
+    if (!subtitleTrack || selectedWords.length === 0) return;
+
+    // Get the first selected word's style
+    const firstWord = getSelectedWord();
+    if (!firstWord) return;
+
+    // Check if word has individual style override
+    let style = firstWord.style_override;
+
+    // If no individual style, check if it's in a group
+    if (!style && firstWord.group_id) {
+        style = subtitleTrack.get_group_style(firstWord.group_id);
+    }
+
+    // If still no style, use global style as default
+    if (!style) {
+        style = subtitleTrack.global_style;
+    }
+
+    // Update the special style controls
+    if (style) {
+        document.getElementById('special-font').value = style.font_family || 'Noto Sans Devanagari';
+        document.getElementById('special-font-size').value = style.font_size || 48;
+        document.getElementById('special-font-size-val').textContent = style.font_size || 48;
+        document.getElementById('special-text-color').value = style.text_color || '#FFFFFF';
+        document.getElementById('special-outline-color').value = style.outline_color || '#000000';
+        document.getElementById('special-outline-width').value = style.outline_width || 2;
+        document.getElementById('special-outline-w-val').textContent = style.outline_width || 2;
+        document.getElementById('special-bold').classList.toggle('bg-primary/30', style.bold);
+        document.getElementById('special-italic').classList.toggle('bg-primary/30', style.italic);
+        document.getElementById('special-shadow').checked = !!style.shadow_color;
+    }
+}
+
+// Get the first selected word object
+function getSelectedWord() {
+    if (selectedWords.length === 0 || !subtitleTrack) return null;
+    const { segmentIndex, wordIndex } = selectedWords[0];
+    const segment = subtitleTrack.segments[segmentIndex];
+    return segment?.words[wordIndex];
+}
+
+// Initialize word selection in Segments panel
+function initWordSelection() {
+    // Event listeners are now attached in attachWordSelectionListeners
+    // which is called after populateSegments
+}
+
+// Handle word click (select or multi-select)
+function handleWordClick(wordEl, isMultiSelect) {
+    const segmentIndex = parseInt(wordEl.dataset.segmentIdx);
+    const wordIndex = parseInt(wordEl.dataset.wordIdx);
+
+    console.log('[handleWordClick] segmentIndex:', segmentIndex, 'wordIndex:', wordIndex, 'isMultiSelect:', isMultiSelect);
+
+    if (!isMultiSelect) {
+        // Single select - clear previous selection
+        selectedWords = [{ segmentIndex, wordIndex }];
+    } else {
+        // Multi-select - toggle selection
+        const existingIndex = selectedWords.findIndex(
+            w => w.segmentIndex === segmentIndex && w.wordIndex === wordIndex
+        );
+        if (existingIndex >= 0) {
+            selectedWords.splice(existingIndex, 1);
+        } else {
+            selectedWords.push({ segmentIndex, wordIndex });
+        }
+    }
+
+    console.log('[handleWordClick] selectedWords:', selectedWords);
+    updateWordSelectionUI();
+    updateSpecialsPanel();
+}
+
+// Update UI to show selected words
+function updateWordSelectionUI() {
+    // Clear all word selections
+    document.querySelectorAll('.word-item').forEach(el => {
+        el.classList.remove('bg-yellow-500/30', 'border-yellow-500');
+    });
+
+    // Highlight selected words
+    selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+        const wordEl = document.querySelector(
+            `.word-item[data-segment-idx="${segmentIndex}"][data-word-idx="${wordIndex}"]`
+        );
+        if (wordEl) {
+            wordEl.classList.add('bg-yellow-500/30', 'border-yellow-500');
+        }
+    });
+
+    // Update timeline to highlight special words
+    if (timeline) {
+        timeline.draw();
+    }
+}
+
+// Context menu for words
+function initContextMenu() {
+    const menu = document.getElementById('word-context-menu');
+
+    // Mark as Special
+    document.getElementById('ctx-mark-special').addEventListener('click', () => {
+        markWordsAsSpecial();
+        hideContextMenu();
+    });
+
+    // Unmark
+    document.getElementById('ctx-unmark').addEventListener('click', () => {
+        unmarkWords();
+        hideContextMenu();
+    });
+
+    // Create Group
+    document.getElementById('ctx-create-group').addEventListener('click', () => {
+        createGroup();
+        hideContextMenu();
+    });
+
+    // Remove from Group
+    document.getElementById('ctx-remove-group').addEventListener('click', () => {
+        removeFromGroup();
+        hideContextMenu();
+    });
+
+    // Hide menu on click elsewhere
+    document.addEventListener('click', () => {
+        hideContextMenu();
+    });
+}
+
+function showContextMenu(x, y, wordEl) {
+    const menu = document.getElementById('word-context-menu');
+    const segmentIndex = parseInt(wordEl.dataset.segmentIdx);
+    const wordIndex = parseInt(wordEl.dataset.wordIdx);
+
+    // Check if this word is selected
+    const isSelected = selectedWords.some(
+        w => w.segmentIndex === segmentIndex && w.wordIndex === wordIndex
+    );
+
+    // If not selected, select it first
+    if (!isSelected) {
+        selectedWords = [{ segmentIndex, wordIndex }];
+        updateWordSelectionUI();
+    }
+
+    // Get the first selected word
+    const firstWord = getSelectedWord();
+    if (!firstWord) return;
+
+    // Update menu items based on state
+    const isSpecial = firstWord.is_special;
+    const hasGroup = !!firstWord.group_id;
+
+    document.getElementById('ctx-mark-special').classList.toggle('hidden', isSpecial);
+    document.getElementById('ctx-unmark').classList.toggle('hidden', !isSpecial);
+    document.getElementById('ctx-create-group').classList.toggle('hidden', selectedWords.length < 2 || hasGroup);
+    document.getElementById('ctx-remove-group').classList.toggle('hidden', !hasGroup);
+
+    // Position menu
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.classList.remove('hidden');
+}
+
+function hideContextMenu() {
+    document.getElementById('word-context-menu').classList.add('hidden');
+}
+
+// Mark selected words as special
+function markWordsAsSpecial() {
+    if (!subtitleTrack || selectedWords.length === 0) return;
+
+    selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+        const segment = subtitleTrack.segments[segmentIndex];
+        if (segment && segment.words[wordIndex]) {
+            const word = segment.words[wordIndex];
+            word.is_special = true;
+            // Inherit current global style
+            word.style_override = subtitleTrack.global_style.copy();
+        }
+    });
+
+    updateWordSelectionUI();
+    autoSave();
+    showToast('Marked as Special');
+}
+
+// Unmark selected words
+function unmarkWords() {
+    if (!subtitleTrack || selectedWords.length === 0) return;
+
+    selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+        const segment = subtitleTrack.segments[segmentIndex];
+        if (segment && segment.words[wordIndex]) {
+            const word = segment.words[wordIndex];
+            word.is_special = false;
+            word.group_id = null;
+            word.style_override = null;
+        }
+    });
+
+    // Clean up empty groups
+    cleanupEmptyGroups();
+
+    updateWordSelectionUI();
+    updateSpecialsPanel();
+    autoSave();
+    showToast('Unmarked');
+}
+
+// Create a group from selected words
+function createGroup() {
+    if (!subtitleTrack || selectedWords.length === 0) return;
+
+    // Create new group with current global style
+    const groupId = subtitleTrack.create_group();
+    const group = subtitleTrack.special_groups[groupId];
+
+    // Add all selected words to the group
+    selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+        const segment = subtitleTrack.segments[segmentIndex];
+        if (segment && segment.words[wordIndex]) {
+            const word = segment.words[wordIndex];
+            word.is_special = true;
+            word.group_id = groupId;
+            word.style_override = null;  // Use group style
+        }
+    });
+
+    currentGroupId = groupId;
+    updateWordSelectionUI();
+    autoSave();
+    showToast('Group created');
+}
+
+// Remove selected words from their group
+function removeFromGroup() {
+    if (!subtitleTrack || selectedWords.length === 0) return;
+
+    selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+        const segment = subtitleTrack.segments[segmentIndex];
+        if (segment && segment.words[wordIndex]) {
+            const word = segment.words[wordIndex];
+            word.group_id = null;
+            word.is_special = false;
+            word.style_override = null;
+        }
+    });
+
+    // Clean up empty groups
+    cleanupEmptyGroups();
+
+    updateWordSelectionUI();
+    updateSpecialsPanel();
+    autoSave();
+    showToast('Removed from group');
+}
+
+// Clean up empty groups
+function cleanupEmptyGroups() {
+    if (!subtitleTrack) return;
+
+    const groupsToDelete = [];
+    for (const [groupId, group] of Object.entries(subtitleTrack.special_groups)) {
+        const members = subtitleTrack.get_group_members(groupId);
+        if (members.length === 0) {
+            groupsToDelete.push(groupId);
+        }
+    }
+
+    groupsToDelete.forEach(groupId => {
+        subtitleTrack.delete_group(groupId);
+    });
+}
+
+// Initialize special style controls
+function initSpecialStyleControls() {
+    // Font family
+    document.getElementById('special-font').addEventListener('change', (e) => {
+        updateSpecialStyle('font_family', e.target.value);
+    });
+
+    // Font size
+    document.getElementById('special-font-size').addEventListener('input', (e) => {
+        document.getElementById('special-font-size-val').textContent = e.target.value;
+        updateSpecialStyle('font_size', parseInt(e.target.value));
+    });
+
+    // Text color
+    document.getElementById('special-text-color').addEventListener('input', (e) => {
+        updateSpecialStyle('text_color', e.target.value);
+    });
+
+    // Outline color
+    document.getElementById('special-outline-color').addEventListener('input', (e) => {
+        updateSpecialStyle('outline_color', e.target.value);
+    });
+
+    // Outline width
+    document.getElementById('special-outline-width').addEventListener('input', (e) => {
+        document.getElementById('special-outline-w-val').textContent = e.target.value;
+        updateSpecialStyle('outline_width', parseInt(e.target.value));
+    });
+
+    // Bold
+    document.getElementById('special-bold').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        const isBold = !btn.classList.contains('bg-primary/30');
+        btn.classList.toggle('bg-primary/30', isBold);
+        updateSpecialStyle('bold', isBold);
+    });
+
+    // Italic
+    document.getElementById('special-italic').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        const isItalic = !btn.classList.contains('bg-primary/30');
+        btn.classList.toggle('bg-primary/30', isItalic);
+        updateSpecialStyle('italic', isItalic);
+    });
+
+    // Shadow
+    document.getElementById('special-shadow').addEventListener('change', (e) => {
+        updateSpecialStyle('shadow_color', e.target.checked ? '#80000000' : '');
+    });
+}
+
+// Update special style for selected words
+function updateSpecialStyle(property, value) {
+    if (!subtitleTrack || selectedWords.length === 0) return;
+
+    // Check if all selected words are in the same group
+    const firstWord = getSelectedWord();
+    if (!firstWord) return;
+
+    const allInSameGroup = selectedWords.every(({ segmentIndex, wordIndex }) => {
+        const seg = subtitleTrack.segments[segmentIndex];
+        const w = seg?.words[wordIndex];
+        return w && w.group_id === firstWord.group_id;
+    });
+
+    if (allInSameGroup && firstWord.group_id) {
+        // Update group style
+        const group = subtitleTrack.special_groups[firstWord.group_id];
+        if (group) {
+            group.style[property] = value;
+        }
+    } else {
+        // Update individual word styles
+        selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+            const segment = subtitleTrack.segments[segmentIndex];
+            if (segment && segment.words[wordIndex]) {
+                const word = segment.words[wordIndex];
+                if (!word.style_override) {
+                    word.style_override = subtitleTrack.global_style.copy();
+                }
+                word.style_override[property] = value;
+            }
+        });
+    }
+
+    // Update preview
+    preview?.setTrack(subtitleTrack);
+    autoSave();
+}
+
+// Initialize global style controls (renamed from old IDs)
+function initGlobalStyleControls() {
+    // Font family
+    document.getElementById('global-font').addEventListener('change', (e) => {
+        updateGlobalStyle('font_family', e.target.value);
+    });
+
+    // Font size
+    document.getElementById('global-font-size').addEventListener('input', (e) => {
+        document.getElementById('global-font-size-val').textContent = e.target.value;
+        updateGlobalStyle('font_size', parseInt(e.target.value));
+    });
+
+    // Text color
+    document.getElementById('global-text-color').addEventListener('input', (e) => {
+        updateGlobalStyle('text_color', e.target.value);
+    });
+
+    // Outline color
+    document.getElementById('global-outline-color').addEventListener('input', (e) => {
+        updateGlobalStyle('outline_color', e.target.value);
+    });
+
+    // Outline width
+    document.getElementById('global-outline-width').addEventListener('input', (e) => {
+        document.getElementById('global-outline-w-val').textContent = e.target.value;
+        updateGlobalStyle('outline_width', parseInt(e.target.value));
+    });
+
+    // Bold
+    document.getElementById('global-bold').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        const isBold = !btn.classList.contains('bg-primary/30');
+        btn.classList.toggle('bg-primary/30', isBold);
+        updateGlobalStyle('bold', isBold);
+    });
+
+    // Italic
+    document.getElementById('global-italic').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        const isItalic = !btn.classList.contains('bg-primary/30');
+        btn.classList.toggle('bg-primary/30', isItalic);
+        updateGlobalStyle('italic', isItalic);
+    });
+
+    // Y Position
+    document.getElementById('global-pos-y').addEventListener('input', (e) => {
+        document.getElementById('global-pos-y-val').textContent = `${e.target.value}%`;
+        if (subtitleTrack) {
+            subtitleTrack.position_y = parseInt(e.target.value) / 100;
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+        }
+    });
+
+    // Subtitle rotation
+    document.getElementById('global-sub-rotation').addEventListener('input', (e) => {
+        document.getElementById('global-sub-rot-val').textContent = `${e.target.value}°`;
+        if (subtitleTrack) {
+            subtitleTrack.global_style.rotation = parseInt(e.target.value);
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+        }
+    });
+
+    // Video rotation
+    document.getElementById('global-vid-rotation').addEventListener('input', (e) => {
+        document.getElementById('global-vid-rot-val').textContent = `${e.target.value}°`;
+        if (subtitleTrack) {
+            subtitleTrack.video_rotation = parseInt(e.target.value);
+            const video = document.getElementById('video-player');
+            if (video) {
+                video.style.transform = `rotate(${e.target.value}deg)`;
+            }
+            autoSave();
+        }
+    });
+
+    // Words per line
+    document.getElementById('global-wpl').addEventListener('input', (e) => {
+        document.getElementById('global-wpl-val').textContent = e.target.value;
+        if (subtitleTrack) {
+            subtitleTrack.words_per_line = parseInt(e.target.value);
+            // Re-segment
+            const allWords = [];
+            for (const seg of subtitleTrack.segments) {
+                allWords.push(...seg.words);
+            }
+            subtitleTrack.segments = [];
+            for (let i = 0; i < allWords.length; i += subtitleTrack.words_per_line) {
+                const chunk = allWords.slice(i, i + subtitleTrack.words_per_line);
+                subtitleTrack.segments.push({
+                    words: chunk,
+                    style: subtitleTrack.global_style.copy()
+                });
+            }
+            populateSegments(subtitleTrack.segments);
+            populateFullText(subtitleTrack.segments);
+            preview?.setTrack(subtitleTrack);
+            timeline?.setData(subtitleTrack, project.video_duration, project.id);
+            autoSave();
+        }
+    });
+
+    // Shadow
+    document.getElementById('global-shadow').addEventListener('change', (e) => {
+        updateGlobalStyle('shadow_color', e.target.checked ? '#80000000' : '');
+    });
+}
+
+// Update global style
+function updateGlobalStyle(property, value) {
+    if (!subtitleTrack) return;
+
+    subtitleTrack.global_style[property] = value;
+    preview?.setTrack(subtitleTrack);
+    autoSave();
+}
+
+// Deselect on Escape key or clicking elsewhere
+function initDeselectOnEscape() {
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            selectedWords = [];
+            updateWordSelectionUI();
+            updateSpecialsPanel();
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        // Don't deselect if clicking on a word item or context menu
+        if (e.target.closest('.word-item') || e.target.closest('#word-context-menu')) {
+            return;
+        }
+        // Don't deselect if clicking on style controls (All or Specials subsections)
+        if (e.target.closest('#all-subsection') || e.target.closest('#specials-subsection')) {
+            return;
+        }
+        // Don't deselect if clicking on subsection tabs
+        if (e.target.closest('[data-sub-tab]')) {
+            return;
+        }
+        // Don't deselect if clicking on main tabs
+        if (e.target.closest('[data-main-tab]')) {
+            return;
+        }
+        // Deselect when clicking elsewhere
+        selectedWords = [];
+        updateWordSelectionUI();
+        updateSpecialsPanel();
+    });
+}
+
+// Override populateSegments to support word selection
+const originalPopulateSegments = populateSegments;
+populateSegments = function(segments) {
+    const panel = document.getElementById('segments-panel');
+
+    if (!segments || segments.length === 0) {
+        panel.innerHTML = '<p class="text-sm text-slate-400">No transcript segments.</p>';
+        return;
+    }
+
+    panel.innerHTML = segments.map((seg, segIdx) => {
+        const startTime = seg.words?.[0]?.start_time || 0;
+        const endTime = seg.words?.[seg.words.length - 1]?.end_time || 0;
+
+        // Build word HTML with special highlighting
+        const wordsHtml = seg.words?.map((word, wordIdx) => {
+            const isSpecial = word.is_special === true;
+            const specialClass = isSpecial ? 'bg-yellow-500/20 border border-yellow-500/50' : '';
+            return `<span class="word-item px-1 rounded cursor-pointer hover:bg-white/10 transition-colors ${specialClass}" data-segment-idx="${segIdx}" data-word-idx="${wordIdx}">${escapeHtml(word.word)}</span>`;
+        }).join(' ') || '';
+
+        return `
+            <div class="segment-item p-2 rounded-lg border border-transparent hover:border-white/10 hover:bg-white/5 cursor-pointer transition-all" data-idx="${segIdx}">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[10px] text-primary font-mono">${formatDuration(startTime)}</span>
+                    <span class="text-[10px] text-slate-500">→</span>
+                    <span class="text-[10px] text-primary font-mono">${formatDuration(endTime)}</span>
+                </div>
+                <p class="text-sm text-slate-200 leading-relaxed">${wordsHtml}</p>
+            </div>
+        `;
+    }).join('');
+
+    // Click handler for segments
+    panel.querySelectorAll('.segment-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            // Don't trigger if clicking on a word
+            if (e.target.closest('.word-item')) return;
+
+            const idx = parseInt(item.dataset.idx);
+            const seg = segments[idx];
+            const startTime = seg.words?.[0]?.start_time || 0;
+            document.getElementById('video-player').currentTime = startTime;
+            if (timeline) {
+                timeline.selectedIndex = { track: 'text', index: idx };
+                timeline.draw();
+            }
+            highlightSegment(idx);
+        });
+    });
+
+    // Re-apply word selection
+    updateWordSelectionUI();
+
+    // Re-attach word selection event listeners after innerHTML replacement
+    attachWordSelectionListeners();
+};
+
+// Attach word selection event listeners to the segments panel
+function attachWordSelectionListeners() {
+    const panel = document.getElementById('segments-panel');
+    if (!panel) return;
+
+    console.log('[attachWordSelectionListeners] Attaching listeners to panel');
+
+    // Remove old listeners by cloning
+    const newPanel = panel.cloneNode(true);
+    panel.parentNode.replaceChild(newPanel, panel);
+
+    // Add click handler for word selection
+    newPanel.addEventListener('click', (e) => {
+        const wordEl = e.target.closest('.word-item');
+        if (wordEl) {
+            e.stopPropagation();
+            console.log('[Word Click] wordEl:', wordEl);
+            handleWordClick(wordEl, e.ctrlKey || e.metaKey);
+        }
+    });
+
+    // Add context menu handler
+    newPanel.addEventListener('contextmenu', (e) => {
+        const wordEl = e.target.closest('.word-item');
+        if (wordEl) {
+            e.preventDefault();
+            showContextMenu(e.clientX, e.clientY, wordEl);
+        }
+    });
+}
+
+// Initialize the styling system
+document.addEventListener('DOMContentLoaded', () => {
+    initStylingSystem();
 });

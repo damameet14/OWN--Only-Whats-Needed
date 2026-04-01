@@ -374,6 +374,30 @@ class SubtitleTimeline {
                 ctx.lineWidth = isSelected ? 2 : 1;
                 ctx.strokeRect(x, subTrackY + 2, sw, trackH - 4);
 
+                // Draw special word highlights
+                if (seg.words && seg.words.length > 0) {
+                    let wordX = x;
+                    const totalDuration = endTime - startTime;
+
+                    for (const word of seg.words) {
+                        const wordDuration = word.end_time - word.start_time;
+                        const wordWidth = (wordDuration / totalDuration) * sw;
+
+                        if (word.is_special) {
+                            // Highlight special words with yellow
+                            ctx.fillStyle = 'rgba(255, 215, 0, 0.4)';
+                            ctx.fillRect(wordX, subTrackY + 2, wordWidth, trackH - 4);
+
+                            // Add a border for special words
+                            ctx.strokeStyle = '#ffd700';
+                            ctx.lineWidth = 1;
+                            ctx.strokeRect(wordX, subTrackY + 2, wordWidth, trackH - 4);
+                        }
+
+                        wordX += wordWidth;
+                    }
+                }
+
                 // Segment text (if wide enough)
                 if (sw > 40) {
                     const text = seg.words?.map(w => w.word).join(' ') || '';

@@ -95,98 +95,220 @@
 
         <!-- Right Panel — Styles -->
         <div class="w-72 flex flex-col border-l border-white/10 bg-bg-dark">
-            <div class="flex border-b border-white/10 overflow-x-auto">
-                <button class="tab-btn active flex-shrink-0" data-tab="text-style">Text</button>
-                <button class="tab-btn flex-shrink-0" data-tab="templates">Templates</button>
-                <button class="tab-btn flex-shrink-0" data-tab="animation">Animation</button>
+            <!-- Top Level Tabs: Style / Presets -->
+            <div class="flex border-b border-white/10">
+                <button class="tab-btn active flex-1" data-main-tab="style">Style</button>
+                <button class="tab-btn flex-1" data-main-tab="presets">Presets</button>
             </div>
 
-            <!-- Text Style Tab -->
-            <div class="flex-1 overflow-y-auto p-4 space-y-5" id="text-style-panel">
-                <!-- Font -->
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Font Family</label>
-                    <select id="style-font" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
-                        <option value="Noto Sans Devanagari" class="bg-bg-dark text-slate-100">Noto Sans Devanagari</option>
-                        <option value="Mukta" class="bg-bg-dark text-slate-100">Mukta</option>
-                        <option value="Baloo 2" class="bg-bg-dark text-slate-100">Baloo 2</option>
-                    </select>
+            <!-- Style Section -->
+            <div class="flex-1 flex flex-col" id="style-section">
+                <!-- Subsection Tabs: All / Specials -->
+                <div class="flex border-b border-white/10 bg-[#1c1a0e]">
+                    <button class="sub-tab-btn active flex-1 text-xs" data-sub-tab="all">All</button>
+                    <button class="sub-tab-btn flex-1 text-xs" data-sub-tab="specials">Specials</button>
                 </div>
-                <!-- Font Size -->
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Font Size: <span id="font-size-val">48</span></label>
-                    <input type="range" id="style-font-size" min="16" max="96" value="48" class="w-full accent-primary"/>
-                </div>
-                <!-- Text Color -->
-                <div class="flex gap-3">
-                    <div class="flex-1">
-                        <label class="text-xs font-medium text-slate-400 mb-1 block">Text Color</label>
-                        <input type="color" id="style-text-color" value="#FFFFFF" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+
+                <!-- All Subsection -->
+                <div class="flex-1 flex flex-col" id="all-subsection">
+                    <!-- All: Text / Templates / Animation Tabs -->
+                    <div class="flex border-b border-white/10 overflow-x-auto">
+                        <button class="tab-btn active flex-shrink-0 text-xs" data-all-tab="text">Text</button>
+                        <button class="tab-btn flex-shrink-0 text-xs" data-all-tab="templates">Templates</button>
+                        <button class="tab-btn flex-shrink-0 text-xs" data-all-tab="animation">Animation</button>
                     </div>
-                    <div class="flex-1">
-                        <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Color</label>
-                        <input type="color" id="style-outline-color" value="#000000" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+
+                    <!-- All: Text Panel -->
+                    <div class="flex-1 overflow-y-auto p-4 space-y-5" id="all-text-panel">
+                        <!-- Font -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Font Family</label>
+                            <select id="global-font" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
+                                <option value="Noto Sans Devanagari" class="bg-bg-dark text-slate-100">Noto Sans Devanagari</option>
+                                <option value="Mukta" class="bg-bg-dark text-slate-100">Mukta</option>
+                                <option value="Baloo 2" class="bg-bg-dark text-slate-100">Baloo 2</option>
+                            </select>
+                        </div>
+                        <!-- Font Size -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Font Size: <span id="global-font-size-val">48</span></label>
+                            <input type="range" id="global-font-size" min="16" max="96" value="48" class="w-full accent-primary"/>
+                        </div>
+                        <!-- Text Color -->
+                        <div class="flex gap-3">
+                            <div class="flex-1">
+                                <label class="text-xs font-medium text-slate-400 mb-1 block">Text Color</label>
+                                <input type="color" id="global-text-color" value="#FFFFFF" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Color</label>
+                                <input type="color" id="global-outline-color" value="#000000" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+                            </div>
+                        </div>
+                        <!-- Outline Width -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Width: <span id="global-outline-w-val">2</span></label>
+                            <input type="range" id="global-outline-width" min="0" max="8" value="2" class="w-full accent-primary"/>
+                        </div>
+                        <!-- Bold/Italic -->
+                        <div class="flex gap-2">
+                            <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="global-bold"><b>B</b></button>
+                            <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="global-italic"><i>I</i></button>
+                        </div>
+                        <!-- Position -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Y Position: <span id="global-pos-y-val">90%</span></label>
+                            <input type="range" id="global-pos-y" min="10" max="95" value="90" class="w-full accent-primary"/>
+                        </div>
+                        <!-- Rotations -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Subtitle Rotation: <span id="global-sub-rot-val">0°</span></label>
+                            <input type="range" id="global-sub-rotation" min="-180" max="180" value="0" class="w-full accent-primary"/>
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Video Rotation: <span id="global-vid-rot-val">0°</span></label>
+                            <input type="range" id="global-vid-rotation" min="-180" max="180" value="0" class="w-full accent-primary"/>
+                        </div>
+                        <!-- Words Per Line -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Words Per Line: <span id="global-wpl-val">4</span></label>
+                            <input type="range" id="global-wpl" min="1" max="15" value="4" class="w-full accent-primary"/>
+                        </div>
+                        <!-- Shadow -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">
+                                <input type="checkbox" id="global-shadow" class="mr-2 accent-primary" checked/> Drop Shadow
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- All: Templates Panel -->
+                    <div class="flex-1 overflow-y-auto p-4 space-y-3 hidden" id="all-templates-panel">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- All: Animation Panel -->
+                    <div class="flex-1 overflow-y-auto p-4 space-y-4 hidden" id="all-animation-panel">
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Animation Type</label>
+                            <select id="global-animation" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
+                                <option value="none" class="bg-bg-dark text-slate-100">None</option>
+                                <option value="fade" class="bg-bg-dark text-slate-100">Fade In/Out</option>
+                                <option value="slide_up" class="bg-bg-dark text-slate-100">Slide Up</option>
+                                <option value="slide_down" class="bg-bg-dark text-slate-100">Slide Down</option>
+                                <option value="typewriter" class="bg-bg-dark text-slate-100">Typewriter</option>
+                                <option value="karaoke" class="bg-bg-dark text-slate-100">Karaoke Highlight</option>
+                                <option value="pop" class="bg-bg-dark text-slate-100">Pop / Scale</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Duration: <span id="global-anim-dur-val">0.3s</span></label>
+                            <input type="range" id="global-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="w-full accent-primary"/>
+                        </div>
                     </div>
                 </div>
-                <!-- Outline Width -->
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Width: <span id="outline-w-val">2</span></label>
-                    <input type="range" id="style-outline-width" min="0" max="8" value="2" class="w-full accent-primary"/>
-                </div>
-                <!-- Bold/Italic -->
-                <div class="flex gap-2">
-                    <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="style-bold"><b>B</b></button>
-                    <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="style-italic"><i>I</i></button>
-                </div>
-                <!-- Position -->
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Y Position: <span id="pos-y-val">90%</span></label>
-                    <input type="range" id="style-pos-y" min="10" max="95" value="90" class="w-full accent-primary"/>
-                </div>
-                <!-- Rotations -->
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Subtitle Rotation: <span id="sub-rot-val">0°</span></label>
-                    <input type="range" id="style-sub-rotation" min="-180" max="180" value="0" class="w-full accent-primary"/>
-                </div>
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Video Rotation: <span id="vid-rot-val">0°</span></label>
-                    <input type="range" id="style-vid-rotation" min="-180" max="180" value="0" class="w-full accent-primary"/>
-                </div>
-                <!-- Words Per Line -->
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Words Per Line: <span id="wpl-val">4</span></label>
-                    <input type="range" id="style-wpl" min="1" max="15" value="4" class="w-full accent-primary"/>
-                </div>
-                <!-- Shadow -->
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">
-                        <input type="checkbox" id="style-shadow" class="mr-2 accent-primary" checked/> Drop Shadow
-                    </label>
+
+                <!-- Specials Subsection -->
+                <div class="flex-1 flex flex-col hidden" id="specials-subsection">
+                    <!-- Specials: Text / Templates / Animation Tabs -->
+                    <div class="flex border-b border-white/10 overflow-x-auto">
+                        <button class="tab-btn active flex-shrink-0 text-xs" data-special-tab="text">Text</button>
+                        <button class="tab-btn flex-shrink-0 text-xs" data-special-tab="templates">Templates</button>
+                        <button class="tab-btn flex-shrink-0 text-xs" data-special-tab="animation">Animation</button>
+                    </div>
+
+                    <!-- Specials: Empty State -->
+                    <div class="flex-1 flex items-center justify-center p-4 hidden" id="specials-empty">
+                        <p class="text-sm text-slate-400 text-center">No specials selected.<br/>Select words from the Segments panel to style them.</p>
+                    </div>
+
+                    <!-- Specials: Text Panel -->
+                    <div class="flex-1 overflow-y-auto p-4 space-y-5 hidden" id="specials-text-panel">
+                        <!-- Font -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Font Family</label>
+                            <select id="special-font" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
+                                <option value="Noto Sans Devanagari" class="bg-bg-dark text-slate-100">Noto Sans Devanagari</option>
+                                <option value="Mukta" class="bg-bg-dark text-slate-100">Mukta</option>
+                                <option value="Baloo 2" class="bg-bg-dark text-slate-100">Baloo 2</option>
+                            </select>
+                        </div>
+                        <!-- Font Size -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Font Size: <span id="special-font-size-val">48</span></label>
+                            <input type="range" id="special-font-size" min="16" max="96" value="48" class="w-full accent-primary"/>
+                        </div>
+                        <!-- Text Color -->
+                        <div class="flex gap-3">
+                            <div class="flex-1">
+                                <label class="text-xs font-medium text-slate-400 mb-1 block">Text Color</label>
+                                <input type="color" id="special-text-color" value="#FFFFFF" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+                            </div>
+                            <div class="flex-1">
+                                <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Color</label>
+                                <input type="color" id="special-outline-color" value="#000000" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+                            </div>
+                        </div>
+                        <!-- Outline Width -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Width: <span id="special-outline-w-val">2</span></label>
+                            <input type="range" id="special-outline-width" min="0" max="8" value="2" class="w-full accent-primary"/>
+                        </div>
+                        <!-- Bold/Italic -->
+                        <div class="flex gap-2">
+                            <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="special-bold"><b>B</b></button>
+                            <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="special-italic"><i>I</i></button>
+                        </div>
+                        <!-- Shadow -->
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">
+                                <input type="checkbox" id="special-shadow" class="mr-2 accent-primary" checked/> Drop Shadow
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Specials: Templates Panel -->
+                    <div class="flex-1 overflow-y-auto p-4 space-y-3 hidden" id="specials-templates-panel">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- Specials: Animation Panel -->
+                    <div class="flex-1 overflow-y-auto p-4 space-y-4 hidden" id="specials-animation-panel">
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Animation Type</label>
+                            <select id="special-animation" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
+                                <option value="none" class="bg-bg-dark text-slate-100">None</option>
+                                <option value="fade" class="bg-bg-dark text-slate-100">Fade In/Out</option>
+                                <option value="slide_up" class="bg-bg-dark text-slate-100">Slide Up</option>
+                                <option value="slide_down" class="bg-bg-dark text-slate-100">Slide Down</option>
+                                <option value="typewriter" class="bg-bg-dark text-slate-100">Typewriter</option>
+                                <option value="karaoke" class="bg-bg-dark text-slate-100">Karaoke Highlight</option>
+                                <option value="pop" class="bg-bg-dark text-slate-100">Pop / Scale</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-slate-400 mb-1 block">Duration: <span id="special-anim-dur-val">0.3s</span></label>
+                            <input type="range" id="special-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="w-full accent-primary"/>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Templates Tab -->
-            <div class="flex-1 overflow-y-auto p-4 space-y-3 hidden" id="templates-panel">
-                <!-- Populated by JS -->
-            </div>
-
-            <!-- Animation Tab -->
-            <div class="flex-1 overflow-y-auto p-4 space-y-4 hidden" id="animation-panel">
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Animation Type</label>
-                    <select id="style-animation" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
-                        <option value="none" class="bg-bg-dark text-slate-100">None</option>
-                        <option value="fade" class="bg-bg-dark text-slate-100">Fade In/Out</option>
-                        <option value="slide_up" class="bg-bg-dark text-slate-100">Slide Up</option>
-                        <option value="slide_down" class="bg-bg-dark text-slate-100">Slide Down</option>
-                        <option value="typewriter" class="bg-bg-dark text-slate-100">Typewriter</option>
-                        <option value="karaoke" class="bg-bg-dark text-slate-100">Karaoke Highlight</option>
-                        <option value="pop" class="bg-bg-dark text-slate-100">Pop / Scale</option>
-                    </select>
+            <!-- Presets Section -->
+            <div class="flex-1 flex flex-col hidden" id="presets-section">
+                <div class="flex border-b border-white/10 overflow-x-auto">
+                    <button class="tab-btn active flex-shrink-0 text-xs" data-preset-tab="presets">Presets</button>
+                    <button class="tab-btn flex-shrink-0 text-xs" data-preset-tab="templates">Templates</button>
                 </div>
-                <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Duration: <span id="anim-dur-val">0.3s</span></label>
-                    <input type="range" id="style-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="w-full accent-primary"/>
+
+                <!-- Presets Panel -->
+                <div class="flex-1 overflow-y-auto p-4 space-y-3" id="presets-panel">
+                    <!-- Populated by JS -->
+                </div>
+
+                <!-- Templates Panel -->
+                <div class="flex-1 overflow-y-auto p-4 space-y-3 hidden" id="presets-templates-panel">
+                    <!-- Populated by JS -->
                 </div>
             </div>
         </div>
@@ -307,6 +429,14 @@
             </a>
         </div>
     </div>
+</div>
+
+<!-- Word Context Menu -->
+<div id="word-context-menu" class="fixed hidden bg-bg-surface border border-white/10 rounded-lg shadow-xl z-50 min-w-[150px]">
+    <button class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors" id="ctx-mark-special">Mark as Special</button>
+    <button class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors hidden" id="ctx-unmark">Unmark</button>
+    <button class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors hidden" id="ctx-create-group">Create Group</button>
+    <button class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors hidden" id="ctx-remove-group">Remove from Group</button>
 </div>
 
 <script src="/static/js/api.js?v=3"></script>

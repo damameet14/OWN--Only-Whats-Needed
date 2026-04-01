@@ -67,7 +67,6 @@ class SubtitlePreview {
 
         if (!activeSeg) return;
 
-        const style = activeSeg.style || track.global_style || {};
         const posX = track.position_x || 0.5;
         const posY = track.position_y || 0.9;
 
@@ -80,17 +79,35 @@ class SubtitlePreview {
 
         if (animState.opacity <= 0) return;
 
-        // Build display text
-        let displayText = activeSeg.words.map(w => w.word).join(' ');
+        // Scale font size based on canvas vs actual resolution
+        const scaleFactor = w / (this.video.videoWidth || 1920);
 
-        if (animType === 'typewriter' && animState.visibleChars >= 0) {
+        // Check if any words have special styling
+        const hasSpecialWords = activeSeg.words.some(w => w.is_special);
+
+        if (hasSpecialWords) {
+            // Render each word individually with its own style
+            this.drawSegmentWithWordStyles(ctx, activeSeg, track, posX, posY, animState, scaleFactor, w, h);
+        } else {
+            // Render entire segment with segment style
+            this.drawSegmentUniform(ctx, activeSeg, track, posX, posY, animState, scaleFactor, w, h);
+        }
+
+        ctx.globalAlpha = 1;
+    }
+
+    drawSegmentUniform(ctx, seg, track, posX, posY, animState, scaleFactor, w, h) {
+        const style = seg.style || track.global_style || {};
+
+        // Build display text
+        let displayText = seg.words.map(w => w.word).join(' ');
+
+        if (animState.visibleChars >= 0) {
             displayText = displayText.substring(0, animState.visibleChars);
         }
 
         if (!displayText.trim()) return;
 
-        // Scale font size based on canvas vs actual resolution
-        const scaleFactor = w / (this.video.videoWidth || 1920);
         const fontSize = Math.round((style.font_size || 48) * scaleFactor);
 
         // Set font
@@ -146,8 +163,8 @@ class SubtitlePreview {
         }
 
         // Karaoke highlight
-        if (animType === 'karaoke' && animState.highlightIdx >= 0) {
-            this.drawKaraoke(ctx, activeSeg, style, animState, x, y, fontSize, scaleFactor);
+        if (animState.highlightIdx >= 0) {
+            this.drawKaraoke(ctx, seg, style, animState, x, y, fontSize, scaleFactor);
         } else {
             // Main text
             ctx.fillStyle = style.text_color || '#FFFFFF';
@@ -157,8 +174,109 @@ class SubtitlePreview {
         if (rotationAngle !== 0) {
             ctx.restore();
         }
+    }
 
-        ctx.globalAlpha = 1;
+    drawSegmentWithWordStyles(ctx, seg, track, posX, posY, animState, scaleFactor, w, h) {
+        const globalStyle = track.global_style || {};
+        const segStyle = seg.style || globalStyle;
+
+        // Calculate total text width for positioning
+        let totalWidth = 0;
+        const wordWidths = [];
+
+        seg.words.forEach(word => {
+            const style = this.getWordStyle(word, segStyle, globalStyle, track);
+            const fontSize = Math.round((style.font_size || 48) * scaleFactor);
+            let fontStr = `${style.bold ? 'bold' : ''} ${style.italic ? 'italic' : ''} ${fontSize}px "${style.font_family || 'sans-serif'}"`.trim();
+            ctx.font = fontStr;
+            const metrics = ctx.measureText(word.word + ' ');
+            wordWidths.push(metrics.width);
+            totalWidth += metrics.width;
+        });
+
+        // Starting X position
+        let currentX = posX * w - totalWidth / 2;
+        currentX += (animState.offsetX || 0) * scaleFactor;
+
+        // Y position
+        const baseFontSize = Math.round((segStyle.font_size || 48) * scaleFactor);
+        let currentY = posY * h - baseFontSize * 1.2;
+        currentY += (animState.offsetY || 0) * scaleFactor;
+
+        ctx.globalAlpha = animState.opacity;
+        ctx.textBaseline = 'top';
+
+        // Render each word
+        seg.words.forEach((word, idx) => {
+            const style = this.getWordStyle(word, segStyle, globalStyle, track);
+            const fontSize = Math.round((style.font_size || 48) * scaleFactor);
+            const wordText = word.word + ' ';
+
+            // Set font for this word
+            let fontStr = `${style.bold ? 'bold' : ''} ${style.italic ? 'italic' : ''} ${fontSize}px "${style.font_family || 'sans-serif'}"`.trim();
+            ctx.font = fontStr;
+
+            const wordW = wordWidths[idx];
+            const wordH = fontSize * 1.2;
+
+            // Rotation
+            const rotationAngle = (style.rotation || 0) * Math.PI / 180;
+            if (rotationAngle !== 0) {
+                ctx.save();
+                ctx.translate(currentX + wordW / 2, currentY + wordH / 2);
+                ctx.rotate(rotationAngle);
+                ctx.translate(-(currentX + wordW / 2), -(currentY + wordH / 2));
+            }
+
+            // Background
+            if (style.bg_color) {
+                ctx.fillStyle = style.bg_color;
+                const pad = (style.bg_padding || 8) * scaleFactor;
+                ctx.fillRect(currentX - pad, currentY - pad, wordW + 2 * pad, wordH + 2 * pad);
+            }
+
+            // Shadow
+            if (style.shadow_color && (style.shadow_offset_x || style.shadow_offset_y)) {
+                ctx.fillStyle = style.shadow_color;
+                ctx.fillText(wordText,
+                    currentX + (style.shadow_offset_x || 0) * scaleFactor,
+                    currentY + (style.shadow_offset_y || 0) * scaleFactor
+                );
+            }
+
+            // Outline
+            if (style.outline_color && style.outline_width > 0) {
+                ctx.strokeStyle = style.outline_color;
+                ctx.lineWidth = style.outline_width * scaleFactor * 2;
+                ctx.lineJoin = 'round';
+                ctx.strokeText(wordText, currentX, currentY);
+            }
+
+            // Main text
+            ctx.fillStyle = style.text_color || '#FFFFFF';
+            ctx.fillText(wordText, currentX, currentY);
+
+            if (rotationAngle !== 0) {
+                ctx.restore();
+            }
+
+            currentX += wordW;
+        });
+    }
+
+    getWordStyle(word, segStyle, globalStyle, track) {
+        // If word has individual style override, use it
+        if (word.style_override) {
+            return word.style_override;
+        }
+
+        // If word is in a group, use group style
+        if (word.group_id && track.special_groups && track.special_groups[word.group_id]) {
+            return track.special_groups[word.group_id].style;
+        }
+
+        // Otherwise use segment style
+        return segStyle;
     }
 
     drawKaraoke(ctx, seg, style, animState, baseX, baseY, fontSize, scale) {
