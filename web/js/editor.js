@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTimelineControls();
     initStyleControls();
     initTabSwitching();
+    initFullTextEditing();
     initExport();
     initSrtDownload();
     initTranscription();
@@ -470,6 +471,83 @@ function populateFullText(segments) {
     if (!segments) return;
     const allText = segments.map(seg => seg.words?.map(w => w.word).join(' ') || '').join('\n');
     textarea.value = allText;
+}
+
+function initFullTextEditing() {
+    const textarea = document.getElementById('fulltext-area');
+    if (!textarea) return;
+
+    textarea.addEventListener('input', () => {
+        if (!subtitleTrack || !subtitleTrack.segments) return;
+
+        // Split by newlines to get lines
+        const lines = textarea.value.split('\n').filter(line => line.trim() !== '');
+
+        // Update segments with new text
+        const newSegments = [];
+        for (let i = 0; i < Math.max(lines.length, subtitleTrack.segments.length); i++) {
+            const oldSeg = subtitleTrack.segments[i];
+            const lineText = lines[i] || '';
+
+            if (oldSeg && oldSeg.words && oldSeg.words.length > 0) {
+                // Split line into words and update existing word timings
+                const newWords = lineText.trim().split(/\s+/);
+                const updatedWords = [];
+
+                for (let j = 0; j < newWords.length; j++) {
+                    const oldWord = oldSeg.words[j];
+                    if (oldWord) {
+                        // Preserve timing from old word
+                        updatedWords.push({
+                            word: newWords[j],
+                            start_time: oldWord.start_time,
+                            end_time: oldWord.end_time,
+                            confidence: oldWord.confidence || 1.0
+                        });
+                    } else {
+                        // New word - estimate timing
+                        const lastWord = updatedWords[updatedWords.length - 1];
+                        const startTime = lastWord ? lastWord.end_time : (oldSeg.words[0]?.start_time || 0);
+                        const duration = 0.5; // Default duration
+                        updatedWords.push({
+                            word: newWords[j],
+                            start_time: startTime,
+                            end_time: startTime + duration,
+                            confidence: 1.0
+                        });
+                    }
+                }
+
+                newSegments.push({
+                    words: updatedWords,
+                    style: oldSeg.style || {}
+                });
+            } else if (lineText.trim()) {
+                // New segment - create with default timing
+                const words = lineText.trim().split(/\s+/).map((w, idx) => ({
+                    word: w,
+                    start_time: idx * 0.5,
+                    end_time: (idx + 1) * 0.5,
+                    confidence: 1.0
+                }));
+                newSegments.push({
+                    words: words,
+                    style: subtitleTrack.global_style || {}
+                });
+            }
+        }
+
+        // Update subtitle track
+        subtitleTrack.segments = newSegments;
+
+        // Update UI
+        populateSegments(newSegments);
+        preview?.setTrack(subtitleTrack);
+        timeline?.setData(subtitleTrack, project.video_duration, project.id);
+
+        // Auto-save
+        autoSave();
+    });
 }
 
 
