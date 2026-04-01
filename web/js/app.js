@@ -22,6 +22,15 @@ function initUploadZone() {
     const modalCancel = document.getElementById('modal-cancel');
     const modalUpload = document.getElementById('modal-upload');
 
+    // Words per line slider
+    const wplSlider = document.getElementById('upload-wpl');
+    const wplVal = document.getElementById('upload-wpl-val');
+    if (wplSlider && wplVal) {
+        wplSlider.addEventListener('input', () => {
+            wplVal.textContent = wplSlider.value;
+        });
+    }
+
     // Click to select file
     uploadBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -74,6 +83,7 @@ async function uploadAndTranscribe(file) {
     const title = document.getElementById('modal-title').value || file.name;
     const language = document.getElementById('modal-language').value;
     const engine = document.getElementById('modal-engine').value;
+    const wordsPerLine = parseInt(document.getElementById('upload-wpl')?.value || '4');
 
     const progressDiv = document.getElementById('upload-progress');
     const statusEl = document.getElementById('upload-status');
@@ -90,7 +100,7 @@ async function uploadAndTranscribe(file) {
         statusEl.textContent = 'Starting transcription...';
 
         // Step 2: Start transcription
-        const { task_id } = await startTranscription(project.id, engine, language);
+        const { task_id } = await startTranscription(project.id, { engine, language, words_per_line: wordsPerLine });
         
         // Step 3: Watch progress
         watchProgress(task_id,

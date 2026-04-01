@@ -126,7 +126,7 @@ async def transcribe_whisper_chunked(
             pass
         return
 
-    # Step 4 — transcribe chunks (80%)
+    # Step 4 — transcribe chunks (75%)
     logger.info(f"[WHISPER] Step 4: Transcribing {len(chunks)} chunks...")
     yield (25, f"Transcribing {len(chunks)} chunks…", None)
     _update_progress(25, f"Transcribing {len(chunks)} chunks…")
@@ -135,7 +135,8 @@ async def transcribe_whisper_chunked(
     total_chunks = len(chunks)
 
     for chunk_idx, (chunk_start, chunk_end) in enumerate(chunks):
-        chunk_progress = 25 + int(((chunk_idx + 1) / total_chunks) * 75)
+        # Calculate progress: 25% base + up to 70% for chunks (leaving 5% for finalization)
+        chunk_progress = 25 + int(((chunk_idx + 1) / total_chunks) * 70)
         logger.info(f"[WHISPER] Processing chunk {chunk_idx + 1}/{total_chunks} ({chunk_start:.2f}s - {chunk_end:.2f}s)...")
         yield (chunk_progress, f"Processing chunk {chunk_idx + 1}/{total_chunks}…", None)
         _update_progress(chunk_progress, f"Processing chunk {chunk_idx + 1}/{total_chunks}…")
@@ -200,6 +201,11 @@ async def transcribe_whisper_chunked(
         logger.info(f"[WHISPER] Cleaned up main wav: {wav_path}")
     except OSError:
         pass
+
+    # Finalization step (5%)
+    logger.info(f"[WHISPER] Finalizing transcription...")
+    yield (98, "Finalizing transcription…", None)
+    _update_progress(98, "Finalizing transcription…")
 
     logger.info(f"[WHISPER] COMPLETE: Total {len(all_words)} words transcribed")
     yield (100, "Transcription complete.", all_words)

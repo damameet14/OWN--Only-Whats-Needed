@@ -536,7 +536,28 @@ function initStyleControls() {
         wplVal.textContent = wplSlider.value;
         if (subtitleTrack) {
             subtitleTrack.words_per_line = parseInt(wplSlider.value);
-            // Note: changing WPL would ideally re-segment, but we keep it simple
+            // Re-segment subtitles with new WPL
+            if (subtitleTrack.segments && subtitleTrack.segments.length > 0) {
+                // Collect all words from all segments
+                const allWords = [];
+                for (const seg of subtitleTrack.segments) {
+                    allWords.push(...seg.words);
+                }
+                // Rebuild segments with new WPL
+                subtitleTrack.segments = [];
+                for (let i = 0; i < allWords.length; i += subtitleTrack.words_per_line) {
+                    const chunk = allWords.slice(i, i + subtitleTrack.words_per_line);
+                    subtitleTrack.segments.push({
+                        words: chunk,
+                        style: subtitleTrack.global_style || {}
+                    });
+                }
+                // Update UI
+                populateSegments(subtitleTrack.segments);
+                populateFullText(subtitleTrack.segments);
+                preview?.setTrack(subtitleTrack);
+                timeline?.setData(subtitleTrack, project.video_duration, project.id);
+            }
             autoSave();
         }
     });
@@ -655,8 +676,8 @@ function applyTrackToControls(track) {
         video.style.transform = `rotate(${track.video_rotation || 0}deg)`;
     }
 
-    setVal('style-wpl', track.words_per_line || 5);
-    document.getElementById('wpl-val').textContent = track.words_per_line || 5;
+    setVal('style-wpl', track.words_per_line || 4);
+    document.getElementById('wpl-val').textContent = track.words_per_line || 4;
     setVal('style-animation', track.animation_type || 'none');
     setVal('style-anim-duration', track.animation_duration || 0.3);
     document.getElementById('anim-dur-val').textContent = `${track.animation_duration || 0.3}s`;
@@ -837,6 +858,15 @@ function initTranscription() {
     const btnCancel = document.getElementById('transcribe-cancel');
     const btnStart = document.getElementById('transcribe-start');
 
+    // Words per line slider
+    const wplSlider = document.getElementById('transcribe-wpl');
+    const wplVal = document.getElementById('transcribe-wpl-val');
+    if (wplSlider && wplVal) {
+        wplSlider.addEventListener('input', () => {
+            wplVal.textContent = wplSlider.value;
+        });
+    }
+
     btnTranscribe.addEventListener('click', () => showModal(modal));
     btnCancel.addEventListener('click', () => hideModal(modal));
 
@@ -844,6 +874,7 @@ function initTranscription() {
         const engine = document.getElementById('transcribe-engine')?.value || 'vosk';
         const model = (engine === 'whisper') ? (document.getElementById('transcribe-model')?.value || null) : null;
         const language = project?.language || 'hi';
+        const wordsPerLine = parseInt(document.getElementById('transcribe-wpl')?.value || '4');
 
         const progressWrap = document.getElementById('transcribe-progress-wrap');
         const statusEl = document.getElementById('transcribe-status');
@@ -854,7 +885,7 @@ function initTranscription() {
         buttons.classList.add('hidden');
 
         try {
-            const { task_id } = await startTranscription(project.id, { engine, language, model });
+            const { task_id } = await startTranscription(project.id, { engine, language, model, words_per_line: wordsPerLine });
 
             watchProgress(task_id,
                 (data) => {

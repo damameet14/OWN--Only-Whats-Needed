@@ -229,8 +229,9 @@ async def start_transcription(project_id: int, body: dict = Body(default=None)):
     engine = body.get("engine", "vosk")  # "vosk" or "whisper"
     model = body.get("model")  # Optional specific model name
     language = body.get("language", project.get("language", "hi"))
+    words_per_line = body.get("words_per_line", 4)  # Default 4 words per line
 
-    logger.info(f"[TRANSCRIBE] project={project_id}, engine={engine!r}, model={model!r}, language={language!r}, body={body}")
+    logger.info(f"[TRANSCRIBE] project={project_id}, engine={engine!r}, model={model!r}, language={language!r}, words_per_line={words_per_line!r}, body={body}")
 
     # Validate model is installed if specified
     if model:
@@ -249,16 +250,16 @@ async def start_transcription(project_id: int, body: dict = Body(default=None)):
     _task_events[task_id] = asyncio.Event()
 
     # Run transcription in background
-    asyncio.create_task(_run_transcription(task_id, project, engine, language, model))
+    asyncio.create_task(_run_transcription(task_id, project, engine, language, model, words_per_line))
 
     db.update_project(project_id, status="transcribing")
     logger.info(f"[TRANSCRIBE] Started task {task_id} for project {project_id}")
     return {"task_id": task_id}
 
 
-async def _run_transcription(task_id: str, project: dict, engine: str, language: str, model_name: str = None):
+async def _run_transcription(task_id: str, project: dict, engine: str, language: str, model_name: str = None, words_per_line: int = 4):
     """Background task for transcription."""
-    logger.info(f"[_run_transcription] START engine={engine!r}, language={language!r}, model_name={model_name!r}")
+    logger.info(f"[_run_transcription] START engine={engine!r}, language={language!r}, model_name={model_name!r}, words_per_line={words_per_line!r}")
     logger.info(f"[_run_transcription] project keys: {list(project.keys())}")
     try:
         video_path = project["video_path"]
@@ -346,6 +347,7 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
         if words:
             # Build subtitle track
             track = SubtitleTrack()
+            track.words_per_line = words_per_line
             track.rebuild_segments(words)
             subtitle_json = track.to_json()
 
@@ -358,11 +360,14 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
             # Small delay to ensure DB commit is visible
             await asyncio.sleep(0.1)
 
+            # Set final state BEFORE triggering event
             _tasks[task_id] = {
                 "percent": 100,
                 "message": "Transcription complete!",
                 "result": {"word_count": len(words)},
             }
+            logger.info(f"[_run_transcription] Setting final state: 100% complete")
+            _task_events.get(task_id, asyncio.Event()).set()
         else:
             logger.info(f"[_run_transcription] No words detected")
             db.update_project(project["id"], status="draft")
@@ -371,6 +376,7 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
                 "message": "No words detected.",
                 "result": {"word_count": 0},
             }
+            _task_events.get(task_id, asyncio.Event()).set()
 
     except Exception as e:
         import traceback
@@ -378,9 +384,9 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
         traceback.print_exc()
         _tasks[task_id] = {"percent": -1, "message": f"Error: {e}", "result": None}
         db.update_project(project["id"], status="draft")
+        _task_events.get(task_id, asyncio.Event()).set()
 
     logger.info(f"[_run_transcription] END")
-    _task_events.get(task_id, asyncio.Event()).set()
 
 
 # ── Export ────────────────────────────────────────────────────────────────────

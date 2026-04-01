@@ -154,8 +154,8 @@
                 </div>
                 <!-- Words Per Line -->
                 <div>
-                    <label class="text-xs font-medium text-slate-400 mb-1 block">Words Per Line: <span id="wpl-val">5</span></label>
-                    <input type="range" id="style-wpl" min="1" max="15" value="5" class="w-full accent-primary"/>
+                    <label class="text-xs font-medium text-slate-400 mb-1 block">Words Per Line: <span id="wpl-val">4</span></label>
+                    <input type="range" id="style-wpl" min="1" max="15" value="4" class="w-full accent-primary"/>
                 </div>
                 <!-- Shadow -->
                 <div>
@@ -245,6 +245,11 @@
                 <button id="download-model-btn" class="mt-2 w-full bg-slate-700 hover:bg-slate-600 text-white text-sm py-2 px-4 rounded-lg hidden">
                     Download Model
                 </button>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-300 mb-2">Words Per Line: <span id="transcribe-wpl-val">4</span></label>
+                <input type="range" id="transcribe-wpl" min="1" max="15" value="4" class="w-full accent-primary"/>
             </div>
 
             <div id="transcribe-progress-wrap" class="hidden">

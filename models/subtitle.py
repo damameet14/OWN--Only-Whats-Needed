@@ -149,7 +149,7 @@ class SubtitleTrack:
     video_segments: list[MediaSegment] = field(default_factory=list)
     audio_segments: list[MediaSegment] = field(default_factory=list)
     global_style: SubtitleStyle = field(default_factory=SubtitleStyle)
-    words_per_line: int = 5
+    words_per_line: int = 4
     position_x: float = 0.5   # 0.0–1.0 normalised (0.5 = center)
     position_y: float = 0.9   # 0.0–1.0 normalised (0.9 = near bottom)
     animation_type: str = "none"

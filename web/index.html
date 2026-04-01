@@ -162,6 +162,10 @@
                     <option value="whisper">Whisper (Accurate, Slower)</option>
                 </select>
             </div>
+            <div>
+                <label class="text-sm font-medium text-slate-300 mb-1 block">Words Per Line: <span id="upload-wpl-val">4</span></label>
+                <input type="range" id="upload-wpl" min="1" max="15" value="4" class="w-full accent-primary"/>
+            </div>
         </div>
         <div class="flex gap-3 mt-8">
             <button class="flex-1 bg-white/5 border border-white/10 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-white/10 transition-colors" id="modal-cancel">Cancel</button>
