@@ -12,7 +12,7 @@ import tempfile
 import uuid
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -164,7 +164,10 @@ async def get_project(project_id: int):
             project["subtitle_data"] = json.loads(project["subtitle_data"])
         except (json.JSONDecodeError, TypeError):
             pass
-    return project
+    return JSONResponse(
+        content=project,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
+    )
 
 
 @app.put("/api/projects/{project_id}")
@@ -214,7 +217,7 @@ async def delete_project(project_id: int):
 # ── Transcription ─────────────────────────────────────────────────────────────
 
 @app.post("/api/projects/{project_id}/transcribe")
-async def start_transcription(project_id: int, body: dict = None):
+async def start_transcription(project_id: int, body: dict = Body(default=None)):
     """Start transcription for a project. Returns a task_id for progress tracking."""
     logger.info(f"[API] POST /api/projects/{project_id}/transcribe - body={body}")
     project = db.get_project(project_id)
@@ -352,6 +355,9 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
                 status="completed",
             )
 
+            # Small delay to ensure DB commit is visible
+            await asyncio.sleep(0.1)
+
             _tasks[task_id] = {
                 "percent": 100,
                 "message": "Transcription complete!",
@@ -380,7 +386,7 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
 # ── Export ────────────────────────────────────────────────────────────────────
 
 @app.post("/api/projects/{project_id}/export")
-async def start_export(project_id: int, body: dict = None):
+async def start_export(project_id: int, body: dict = Body(default=None)):
     """Start video export. Returns a task_id for progress tracking."""
     project = db.get_project(project_id)
     if not project:

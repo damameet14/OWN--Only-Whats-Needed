@@ -38,7 +38,10 @@ function getProjectIdFromUrl() {
 
 async function loadProject(id) {
     try {
-        project = await getProject(id);
+        // Add cache-busting timestamp
+        project = await getProject(`${id}?_t=${Date.now()}`);
+        console.log('[loadProject] Loaded project:', project);
+        console.log('[loadProject] Subtitle data:', project.subtitle_data);
         document.getElementById('project-title').textContent = project.title;
 
         // Load video
@@ -55,26 +58,43 @@ async function loadProject(id) {
             }
         }
 
-        // Initialize preview
+        // Initialize preview (only once)
         const canvas = document.getElementById('subtitle-canvas');
-        preview = new SubtitlePreview(video, canvas);
+        if (!preview) {
+            preview = new SubtitlePreview(video, canvas);
+            preview.start();
+        }
         if (subtitleTrack) {
             preview.setTrack(subtitleTrack);
         }
-        preview.start();
 
-        // Initialize timeline
+        // Initialize timeline (only once)
         const timelineCanvas = document.getElementById('timeline-canvas');
         const timelineWrapper = document.getElementById('timeline-wrapper');
-        timeline = new SubtitleTimeline(timelineCanvas, timelineWrapper);
+        if (!timeline) {
+            timeline = new SubtitleTimeline(timelineCanvas, timelineWrapper);
+
+            // Set up timeline callbacks (only once)
+            timeline.onSeek = (time) => {
+                video.currentTime = time;
+            };
+
+            timeline.onSelect = (sel) => {
+                if (sel && sel.track === 'text') {
+                    highlightSegment(sel.index);
+                } else {
+                    highlightSegment(-1);
+                }
+            };
+        }
 
         if (subtitleTrack) {
             // BACKWARDS COMPATIBILITY: Initialize multi-track segments if missing
             if (!subtitleTrack.video_segments || subtitleTrack.video_segments.length === 0) {
-                subtitleTrack.video_segments = [{start: 0, end: project.video_duration, source_start: 0, source_end: project.video_duration}];
+                subtitleTrack.video_segments = [{ start: 0, end: project.video_duration, source_start: 0, source_end: project.video_duration }];
             }
             if (!subtitleTrack.audio_segments || subtitleTrack.audio_segments.length === 0) {
-                subtitleTrack.audio_segments = [{start: 0, end: project.video_duration, source_start: 0, source_end: project.video_duration}];
+                subtitleTrack.audio_segments = [{ start: 0, end: project.video_duration, source_start: 0, source_end: project.video_duration }];
             }
 
             timeline.setData(subtitleTrack, project.video_duration, project.id);
@@ -83,61 +103,52 @@ async function loadProject(id) {
             applyTrackToControls(subtitleTrack);
         }
 
-        // Subtitle Canvas Dragging
-        let isDraggingSubtitle = false;
-        canvas.addEventListener('mousedown', (e) => {
-            if (!subtitleTrack) return;
-            const rect = canvas.getBoundingClientRect();
-            const posX = subtitleTrack.position_x || 0.5;
-            const posY = subtitleTrack.position_y || 0.9;
-            const clickX = (e.clientX - rect.left) / rect.width;
-            const clickY = (e.clientY - rect.top) / rect.height;
+        // Subtitle Canvas Dragging (only set up once)
+        if (!canvas.hasAttribute('data-drag-setup')) {
+            canvas.setAttribute('data-drag-setup', 'true');
+            let isDraggingSubtitle = false;
+            canvas.addEventListener('mousedown', (e) => {
+                if (!subtitleTrack) return;
+                const rect = canvas.getBoundingClientRect();
+                const posX = subtitleTrack.position_x || 0.5;
+                const posY = subtitleTrack.position_y || 0.9;
+                const clickX = (e.clientX - rect.left) / rect.width;
+                const clickY = (e.clientY - rect.top) / rect.height;
 
-            // Rough hit box for subtitle text area
-            if (Math.abs(clickX - posX) < 0.3 && Math.abs(clickY - posY) < 0.2) {
-                isDraggingSubtitle = true;
-            } else {
-                document.getElementById('btn-play').click();
-            }
-        });
+                // Rough hit box for subtitle text area
+                if (Math.abs(clickX - posX) < 0.3 && Math.abs(clickY - posY) < 0.2) {
+                    isDraggingSubtitle = true;
+                } else {
+                    document.getElementById('btn-play').click();
+                }
+            });
 
-        window.addEventListener('mousemove', (e) => {
-            if (!isDraggingSubtitle || !subtitleTrack) return;
-            const rect = canvas.getBoundingClientRect();
-            let x = (e.clientX - rect.left) / rect.width;
-            let y = (e.clientY - rect.top) / rect.height;
-            
-            x = Math.max(0.05, Math.min(0.95, x));
-            y = Math.max(0.05, Math.min(0.95, y));
-            
-            subtitleTrack.position_x = x;
-            subtitleTrack.position_y = y;
-            
-            const posYSlider = document.getElementById('style-pos-y');
-            const posYVal = document.getElementById('pos-y-val');
-            if (posYSlider) {
-                posYSlider.value = Math.round(y * 100);
-                posYVal.textContent = `${posYSlider.value}%`;
-            }
-            preview.setTrack(subtitleTrack);
-            autoSave();
-        });
+            window.addEventListener('mousemove', (e) => {
+                if (!isDraggingSubtitle || !subtitleTrack) return;
+                const rect = canvas.getBoundingClientRect();
+                let x = (e.clientX - rect.left) / rect.width;
+                let y = (e.clientY - rect.top) / rect.height;
 
-        window.addEventListener('mouseup', () => {
-            isDraggingSubtitle = false;
-        });
+                x = Math.max(0.05, Math.min(0.95, x));
+                y = Math.max(0.05, Math.min(0.95, y));
 
-        timeline.onSeek = (time) => {
-            video.currentTime = time;
-        };
+                subtitleTrack.position_x = x;
+                subtitleTrack.position_y = y;
 
-        timeline.onSelect = (sel) => {
-            if (sel && sel.track === 'text') {
-                highlightSegment(sel.index);
-            } else {
-                highlightSegment(-1);
-            }
-        };
+                const posYSlider = document.getElementById('style-pos-y');
+                const posYVal = document.getElementById('pos-y-val');
+                if (posYSlider) {
+                    posYSlider.value = Math.round(y * 100);
+                    posYVal.textContent = `${posYSlider.value}%`;
+                }
+                preview.setTrack(subtitleTrack);
+                autoSave();
+            });
+
+            window.addEventListener('mouseup', () => {
+                isDraggingSubtitle = false;
+            });
+        }
 
     } catch (err) {
         alert(`Error loading project: ${err.message}`);
@@ -201,7 +212,7 @@ function initVideoPlayer() {
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-        
+
         switch (e.key) {
             case ' ':
                 e.preventDefault();
@@ -242,7 +253,7 @@ function initVideoPlayer() {
 
 
 // ── Timeline Controls ────────────────────────────────────────────────────────
-    
+
 function initTimelineControls() {
     const btnSplit = document.getElementById('btn-split');
     const btnTrim = document.getElementById('btn-trim');
@@ -252,7 +263,7 @@ function initTimelineControls() {
             if (!timeline || !subtitleTrack) return;
             const time = timeline.currentTime;
             let splitOccurred = false;
-            
+
             // For ALL tracks (video, audio, text), split the segment that intersects with `time`
             const splitTrackSegments = (trackName, segList) => {
                 if (!segList) return;
@@ -261,14 +272,14 @@ function initTimelineControls() {
                     const end = (trackName === 'text') ? (seg.words?.[seg.words.length - 1]?.end_time || 0) : seg.end;
                     return time > start && time < end; // Strict inequality to avoid splitting exactly at borders
                 });
-                
+
                 if (sIdx !== -1) {
                     const seg = segList[sIdx];
                     if (trackName === 'text') {
                         if (!seg.words || seg.words.length < 2) return;
                         let wIdx = seg.words.findIndex(w => (w.start_time <= time && w.end_time >= time) || w.start_time >= time);
                         if (wIdx <= 0 || wIdx >= seg.words.length) return; // Cannot split if on edges
-                        
+
                         const seg1 = { ...seg, words: seg.words.slice(0, wIdx) };
                         const seg2 = { ...seg, words: seg.words.slice(wIdx) };
                         segList.splice(sIdx, 1, seg1, seg2);
@@ -288,7 +299,7 @@ function initTimelineControls() {
             splitTrackSegments('video', subtitleTrack.video_segments);
             splitTrackSegments('audio', subtitleTrack.audio_segments);
             splitTrackSegments('text', subtitleTrack.segments);
-            
+
             if (splitOccurred) {
                 timeline.setData(subtitleTrack, project.video_duration, project.id);
                 populateSegments(subtitleTrack.segments);
@@ -304,12 +315,12 @@ function initTimelineControls() {
     if (btnTrim) {
         btnTrim.addEventListener('click', () => {
             if (!timeline || !subtitleTrack) return;
-            
+
             if (timeline.selectionRange) {
                 const { start, end } = timeline.selectionRange;
                 if (end <= start) return;
                 const cutDuration = end - start;
-                
+
                 // Helper to trim a media segment list
                 const trimMediaList = (segList) => {
                     const newList = [];
@@ -344,12 +355,12 @@ function initTimelineControls() {
                 for (let seg of subtitleTrack.segments) {
                     const sStart = seg.words?.[0]?.start_time || 0;
                     const sEnd = seg.words?.[seg.words.length - 1]?.end_time || 0;
-                    
+
                     if (sEnd <= start) {
                         newTextList.push(seg);
                     } else if (sStart >= end) {
                         // Shift words left
-                        const newSeg = { ...seg, words: seg.words.map(w => ({...w, start_time: w.start_time - cutDuration, end_time: w.end_time - cutDuration})) };
+                        const newSeg = { ...seg, words: seg.words.map(w => ({ ...w, start_time: w.start_time - cutDuration, end_time: w.end_time - cutDuration })) };
                         newTextList.push(newSeg);
                     } else {
                         // Word by word trimming
@@ -358,22 +369,22 @@ function initTimelineControls() {
                             if (w.end_time <= start) {
                                 newWords.push(w);
                             } else if (w.start_time >= end) {
-                                newWords.push({...w, start_time: w.start_time - cutDuration, end_time: w.end_time - cutDuration});
+                                newWords.push({ ...w, start_time: w.start_time - cutDuration, end_time: w.end_time - cutDuration });
                             }
                             // Else drop words inside cut area
                         }
                         if (newWords.length > 0) {
-                            newTextList.push({...seg, words: newWords});
+                            newTextList.push({ ...seg, words: newWords });
                         }
                     }
                 }
                 subtitleTrack.segments = newTextList;
-                
+
                 project.video_duration = Math.max(0, project.video_duration - cutDuration);
                 timeline.duration = project.video_duration;
                 timeline.selectionRange = null;
                 timeline.selectedIndex = { track: null, index: -1 };
-                
+
                 timeline.setData(subtitleTrack, project.video_duration, project.id);
                 populateSegments(subtitleTrack.segments);
                 populateFullText(subtitleTrack.segments);
@@ -615,7 +626,7 @@ function updateStyle(prop, value) {
 
 function applyTrackToControls(track) {
     const style = track.global_style || {};
-    
+
     const setVal = (id, val) => {
         const el = document.getElementById(id);
         if (el) el.value = val;
@@ -847,18 +858,21 @@ function initTranscription() {
 
             watchProgress(task_id,
                 (data) => {
+                    console.log('[Transcription] Progress:', data);
                     barEl.style.width = `${data.percent}%`;
                     statusEl.textContent = data.message;
                 },
                 (data) => {
+                    console.log('[Transcription] Complete:', data);
                     progressWrap.classList.add('hidden');
                     buttons.classList.remove('hidden');
                     hideModal(modal);
                     showToast('Transcription complete!');
-                    // Reload project to get subtitle data
-                    loadProject(project.id);
+                    // Reload project to get subtitle data (with small delay for DB commit)
+                    setTimeout(() => loadProject(project.id), 500);
                 },
                 (error) => {
+                    console.error('[Transcription] Error:', error);
                     progressWrap.classList.add('hidden');
                     buttons.classList.remove('hidden');
                     showToast(`Transcription error: ${error}`, 'error');

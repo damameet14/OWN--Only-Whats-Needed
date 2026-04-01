@@ -211,6 +211,8 @@ def update_project(project_id: int, **kwargs) -> Optional[dict]:
         f"UPDATE projects SET {set_clause} WHERE id = ?", values
     )
     conn.commit()
+    # Ensure WAL checkpoint for immediate visibility
+    conn.execute("PRAGMA wal_checkpoint(FULL)")
     project = dict(conn.execute(
         "SELECT * FROM projects WHERE id = ?", (project_id,)
     ).fetchone())
