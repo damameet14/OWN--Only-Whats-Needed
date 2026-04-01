@@ -480,8 +480,8 @@ function initFullTextEditing() {
     textarea.addEventListener('input', () => {
         if (!subtitleTrack || !subtitleTrack.segments) return;
 
-        // Split by newlines to get lines
-        const lines = textarea.value.split('\n').filter(line => line.trim() !== '');
+        // Split by newlines to get lines (keep empty lines to preserve segment count)
+        const lines = textarea.value.split('\n');
 
         // Update segments with new text
         const newSegments = [];
@@ -491,37 +491,40 @@ function initFullTextEditing() {
 
             if (oldSeg && oldSeg.words && oldSeg.words.length > 0) {
                 // Split line into words and update existing word timings
-                const newWords = lineText.trim().split(/\s+/);
+                const newWords = lineText.trim().split(/\s+/).filter(w => w !== '');
                 const updatedWords = [];
 
-                for (let j = 0; j < newWords.length; j++) {
-                    const oldWord = oldSeg.words[j];
-                    if (oldWord) {
-                        // Preserve timing from old word
-                        updatedWords.push({
-                            word: newWords[j],
-                            start_time: oldWord.start_time,
-                            end_time: oldWord.end_time,
-                            confidence: oldWord.confidence || 1.0
-                        });
-                    } else {
-                        // New word - estimate timing
-                        const lastWord = updatedWords[updatedWords.length - 1];
-                        const startTime = lastWord ? lastWord.end_time : (oldSeg.words[0]?.start_time || 0);
-                        const duration = 0.5; // Default duration
-                        updatedWords.push({
-                            word: newWords[j],
-                            start_time: startTime,
-                            end_time: startTime + duration,
-                            confidence: 1.0
-                        });
+                if (newWords.length > 0) {
+                    for (let j = 0; j < newWords.length; j++) {
+                        const oldWord = oldSeg.words[j];
+                        if (oldWord) {
+                            // Preserve timing from old word
+                            updatedWords.push({
+                                word: newWords[j],
+                                start_time: oldWord.start_time,
+                                end_time: oldWord.end_time,
+                                confidence: oldWord.confidence || 1.0
+                            });
+                        } else {
+                            // New word - estimate timing
+                            const lastWord = updatedWords[updatedWords.length - 1];
+                            const startTime = lastWord ? lastWord.end_time : (oldSeg.words[0]?.start_time || 0);
+                            const duration = 0.5; // Default duration
+                            updatedWords.push({
+                                word: newWords[j],
+                                start_time: startTime,
+                                end_time: startTime + duration,
+                                confidence: 1.0
+                            });
+                        }
                     }
-                }
 
-                newSegments.push({
-                    words: updatedWords,
-                    style: oldSeg.style || {}
-                });
+                    newSegments.push({
+                        words: updatedWords,
+                        style: oldSeg.style || {}
+                    });
+                }
+                // If newWords is empty, we skip this segment (effectively deleting it)
             } else if (lineText.trim()) {
                 // New segment - create with default timing
                 const words = lineText.trim().split(/\s+/).map((w, idx) => ({
