@@ -94,25 +94,25 @@
         </div>
 
         <!-- Right Panel — Styles -->
-        <div class="w-72 flex flex-col border-l border-white/10 bg-bg-dark">
+        <div class="w-72 flex flex-col border-l border-white/10 bg-bg-dark h-full max-h-[calc(100vh-4rem)]">
             <!-- Top Level Tabs: Style / Presets -->
-            <div class="flex border-b border-white/10">
+            <div class="flex border-b border-white/10 flex-shrink-0">
                 <button class="tab-btn active flex-1" data-main-tab="style">Style</button>
                 <button class="tab-btn flex-1" data-main-tab="presets">Presets</button>
             </div>
 
             <!-- Style Section -->
-            <div class="flex-1 flex flex-col" id="style-section">
+            <div class="flex-1 flex flex-col min-h-0" id="style-section">
                 <!-- Subsection Tabs: All / Specials -->
-                <div class="flex border-b border-white/10 bg-[#1c1a0e]">
+                <div class="flex border-b border-white/10 bg-[#1c1a0e] flex-shrink-0">
                     <button class="sub-tab-btn active flex-1 text-xs" data-sub-tab="all">All</button>
                     <button class="sub-tab-btn flex-1 text-xs" data-sub-tab="specials">Specials</button>
                 </div>
 
                 <!-- All Subsection -->
-                <div class="flex-1 flex flex-col" id="all-subsection">
+                <div class="flex-1 flex flex-col min-h-0" id="all-subsection">
                     <!-- All: Text / Templates / Animation Tabs -->
-                    <div class="flex border-b border-white/10 overflow-x-auto">
+                    <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
                         <button class="tab-btn active flex-shrink-0 text-xs" data-all-tab="text">Text</button>
                         <button class="tab-btn flex-shrink-0 text-xs" data-all-tab="templates">Templates</button>
                         <button class="tab-btn flex-shrink-0 text-xs" data-all-tab="animation">Animation</button>
@@ -209,9 +209,9 @@
                 </div>
 
                 <!-- Specials Subsection -->
-                <div class="flex-1 flex flex-col hidden" id="specials-subsection">
+                <div class="flex-1 flex flex-col min-h-0 hidden" id="specials-subsection">
                     <!-- Specials: Text / Templates / Animation Tabs -->
-                    <div class="flex border-b border-white/10 overflow-x-auto">
+                    <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
                         <button class="tab-btn active flex-shrink-0 text-xs" data-special-tab="text">Text</button>
                         <button class="tab-btn flex-shrink-0 text-xs" data-special-tab="templates">Templates</button>
                         <button class="tab-btn flex-shrink-0 text-xs" data-special-tab="animation">Animation</button>
@@ -295,8 +295,8 @@
             </div>
 
             <!-- Presets Section -->
-            <div class="flex-1 flex flex-col hidden" id="presets-section">
-                <div class="flex border-b border-white/10 overflow-x-auto">
+            <div class="flex-1 flex flex-col min-h-0 hidden" id="presets-section">
+                <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
                     <button class="tab-btn active flex-shrink-0 text-xs" data-preset-tab="presets">Presets</button>
                     <button class="tab-btn flex-shrink-0 text-xs" data-preset-tab="templates">Templates</button>
                 </div>

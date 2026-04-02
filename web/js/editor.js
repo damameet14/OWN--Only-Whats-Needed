@@ -36,6 +36,98 @@ function getProjectIdFromUrl() {
     return parseInt(parts[parts.length - 1]) || null;
 }
 
+// Ensure subtitleTrack has all necessary methods (for JSON-loaded data)
+function ensureSubtitleTrackMethods() {
+    if (!subtitleTrack) return;
+
+    // Ensure special_groups exists
+    if (!subtitleTrack.special_groups) {
+        subtitleTrack.special_groups = {};
+    }
+
+    // Add create_group method if missing
+    if (!subtitleTrack.create_group) {
+        subtitleTrack.create_group = function(name = "") {
+            const groupId = 'group_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            this.special_groups[groupId] = {
+                id: groupId,
+                name: name,
+                style: this.global_style ? JSON.parse(JSON.stringify(this.global_style)) : {}
+            };
+            return groupId;
+        };
+    }
+
+    // Add delete_group method if missing
+    if (!subtitleTrack.delete_group) {
+        subtitleTrack.delete_group = function(groupId) {
+            if (this.special_groups && this.special_groups[groupId]) {
+                delete this.special_groups[groupId];
+                // Remove group_id from all words
+                if (this.segments) {
+                    for (const seg of this.segments) {
+                        if (seg.words) {
+                            for (const word of seg.words) {
+                                if (word.group_id === groupId) {
+                                    word.group_id = null;
+                                    word.is_special = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    // Add get_group_style method if missing
+    if (!subtitleTrack.get_group_style) {
+        subtitleTrack.get_group_style = function(groupId) {
+            const group = this.special_groups && this.special_groups[groupId];
+            return group ? group.style : null;
+        };
+    }
+
+    // Add get_group_members method if missing
+    if (!subtitleTrack.get_group_members) {
+        subtitleTrack.get_group_members = function(groupId) {
+            const members = [];
+            if (this.segments) {
+                for (let segIdx = 0; segIdx < this.segments.length; segIdx++) {
+                    const seg = this.segments[segIdx];
+                    if (seg.words) {
+                        for (let wordIdx = 0; wordIdx < seg.words.length; wordIdx++) {
+                            const word = seg.words[wordIdx];
+                            if (word.group_id === groupId) {
+                                members.push([segIdx, wordIdx]);
+                            }
+                        }
+                    }
+                }
+            }
+            return members;
+        };
+    }
+
+    // Ensure global_style has copy method
+    if (subtitleTrack.global_style && !subtitleTrack.global_style.copy) {
+        subtitleTrack.global_style.copy = function() {
+            return JSON.parse(JSON.stringify(this));
+        };
+    }
+
+    // Ensure all segment styles have copy method
+    if (subtitleTrack.segments) {
+        for (const seg of subtitleTrack.segments) {
+            if (seg.style && !seg.style.copy) {
+                seg.style.copy = function() {
+                    return JSON.parse(JSON.stringify(this));
+                };
+            }
+        }
+    }
+}
+
 async function loadProject(id) {
     try {
         // Add cache-busting timestamp
@@ -56,6 +148,8 @@ async function loadProject(id) {
             } else {
                 subtitleTrack = project.subtitle_data;
             }
+            // Ensure subtitleTrack has all necessary methods
+            ensureSubtitleTrackMethods();
         }
 
         // Initialize preview (only once)
@@ -677,15 +771,28 @@ function initTabSwitching() {
 // ── Presets / Templates ──────────────────────────────────────────────────────
 
 async function loadPresets() {
-    const panel = document.getElementById('templates-panel');
+    // Load templates into all template panels
+    const templatePanels = [
+        document.getElementById('all-templates-panel'),
+        document.getElementById('specials-templates-panel'),
+        document.getElementById('presets-templates-panel')
+    ].filter(p => p !== null);  // Filter out null panels
+
+    if (templatePanels.length === 0) {
+        console.warn('[loadPresets] No template panels found');
+        return;
+    }
+
     try {
         const presets = await getPresets();
         if (!presets.length) {
-            panel.innerHTML = '<p class="text-sm text-slate-400">No presets available.</p>';
+            templatePanels.forEach(panel => {
+                panel.innerHTML = '<p class="text-sm text-slate-400">No presets available.</p>';
+            });
             return;
         }
 
-        panel.innerHTML = presets.map((preset, idx) => `
+        const templateHtml = presets.map((preset, idx) => `
             <div class="preset-card p-3 rounded-lg border border-white/10 bg-white/5 cursor-pointer hover:border-primary/30 transition-all" data-idx="${idx}">
                 <div class="text-sm font-bold text-white mb-1">${escapeHtml(preset.name)}</div>
                 <div class="text-xs text-slate-400">${escapeHtml(preset.description || '')}</div>
@@ -695,27 +802,36 @@ async function loadPresets() {
             </div>
         `).join('');
 
-        panel.querySelectorAll('.preset-card').forEach(card => {
-            card.addEventListener('click', () => {
-                const idx = parseInt(card.dataset.idx);
-                const preset = presets[idx];
-                if (preset.style && subtitleTrack) {
-                    // Apply preset style
-                    subtitleTrack.global_style = { ...subtitleTrack.global_style, ...preset.style };
-                    if (subtitleTrack.segments) {
-                        for (const seg of subtitleTrack.segments) {
-                            seg.style = { ...seg.style, ...preset.style };
+        templatePanels.forEach(panel => {
+            panel.innerHTML = templateHtml;
+
+            panel.querySelectorAll('.preset-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const idx = parseInt(card.dataset.idx);
+                    const preset = presets[idx];
+                    if (preset.style && subtitleTrack) {
+                        // Apply preset style
+                        subtitleTrack.global_style = { ...subtitleTrack.global_style, ...preset.style };
+                        if (subtitleTrack.segments) {
+                            for (const seg of subtitleTrack.segments) {
+                                if (seg.style) {
+                                    seg.style = { ...seg.style, ...preset.style };
+                                }
+                            }
                         }
+                        preview?.setTrack(subtitleTrack);
+                        applyTrackToControls(subtitleTrack);
+                        autoSave();
+                        showToast(`Applied "${preset.name}" style`);
                     }
-                    preview?.setTrack(subtitleTrack);
-                    applyTrackToControls(subtitleTrack);
-                    autoSave();
-                    showToast(`Applied "${preset.name}" style`);
-                }
+                });
             });
         });
     } catch (err) {
-        panel.innerHTML = `<p class="text-sm text-red-400">Error loading presets.</p>`;
+        console.error('Failed to load presets:', err);
+        templatePanels.forEach(panel => {
+            panel.innerHTML = '<p class="text-sm text-red-400">Error loading presets.</p>';
+        });
     }
 }
 
@@ -1264,9 +1380,15 @@ function markWordsAsSpecial() {
             const word = segment.words[wordIndex];
             word.is_special = true;
             // Inherit current global style
-            word.style_override = subtitleTrack.global_style.copy();
+            word.style_override = JSON.parse(JSON.stringify(subtitleTrack.global_style || {}));
         }
     });
+
+    // Update timeline data to reflect special words
+    if (timeline) {
+        timeline.segments.text = subtitleTrack.segments;
+        timeline.draw();
+    }
 
     updateWordSelectionUI();
     autoSave();
@@ -1289,6 +1411,12 @@ function unmarkWords() {
 
     // Clean up empty groups
     cleanupEmptyGroups();
+
+    // Update timeline data to reflect changes
+    if (timeline) {
+        timeline.segments.text = subtitleTrack.segments;
+        timeline.draw();
+    }
 
     updateWordSelectionUI();
     updateSpecialsPanel();
@@ -1315,6 +1443,12 @@ function createGroup() {
         }
     });
 
+    // Update timeline data to reflect special words
+    if (timeline) {
+        timeline.segments.text = subtitleTrack.segments;
+        timeline.draw();
+    }
+
     currentGroupId = groupId;
     updateWordSelectionUI();
     autoSave();
@@ -1337,6 +1471,12 @@ function removeFromGroup() {
 
     // Clean up empty groups
     cleanupEmptyGroups();
+
+    // Update timeline data to reflect changes
+    if (timeline) {
+        timeline.segments.text = subtitleTrack.segments;
+        timeline.draw();
+    }
 
     updateWordSelectionUI();
     updateSpecialsPanel();
@@ -1439,7 +1579,8 @@ function updateSpecialStyle(property, value) {
             if (segment && segment.words[wordIndex]) {
                 const word = segment.words[wordIndex];
                 if (!word.style_override) {
-                    word.style_override = subtitleTrack.global_style.copy();
+                    // Create a deep copy of global_style
+                    word.style_override = JSON.parse(JSON.stringify(subtitleTrack.global_style || {}));
                 }
                 word.style_override[property] = value;
             }
@@ -1448,6 +1589,12 @@ function updateSpecialStyle(property, value) {
 
     // Update preview
     preview?.setTrack(subtitleTrack);
+
+    // Update timeline to reflect changes
+    if (timeline) {
+        timeline.draw();
+    }
+
     autoSave();
 }
 
@@ -1544,7 +1691,7 @@ function initGlobalStyleControls() {
                 const chunk = allWords.slice(i, i + subtitleTrack.words_per_line);
                 subtitleTrack.segments.push({
                     words: chunk,
-                    style: subtitleTrack.global_style.copy()
+                    style: JSON.parse(JSON.stringify(subtitleTrack.global_style || {}))
                 });
             }
             populateSegments(subtitleTrack.segments);
