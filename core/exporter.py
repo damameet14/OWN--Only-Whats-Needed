@@ -13,12 +13,19 @@ import asyncio
 from typing import AsyncGenerator, Optional
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 from models.subtitle import SubtitleTrack, SubtitleSegment, SubtitleStyle
 from models.animations import AnimationType, compute_animation_state
 from core.video_utils import get_video_info, OUTPUT_FORMATS
 from server.config import FONTS_DIR
+
+# Try importing cv2 for gradient support
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
 
 
 def _build_concat_filter(video_segments) -> Optional[str]:
@@ -26,9 +33,6 @@ def _build_concat_filter(video_segments) -> Optional[str]:
     if not video_segments:
         return None
 
-    # Check if it's just one segment that covers the whole video (or close to it)
-    # Actually, we can just always run the concat if there are edits. 
-    # But let's build the filter anyway.
     filter_parts = []
     stream_labels = []
 
@@ -36,7 +40,6 @@ def _build_concat_filter(video_segments) -> Optional[str]:
         ss = seg.source_start
         se = seg.source_end
         
-        # We must add extremely precise cut logic
         filter_parts.append(f"[0:v]trim=start={ss}:end={se},setpts=PTS-STARTPTS[v{i}]")
         filter_parts.append(f"[0:a]atrim=start={ss}:end={se},asetpts=PTS-STARTPTS[a{i}]")
         stream_labels.append(f"[v{i}][a{i}]")
@@ -51,16 +54,15 @@ def _build_concat_filter(video_segments) -> Optional[str]:
 
 # ── Font cache ────────────────────────────────────────────────────────────────
 
-_font_cache: dict[tuple[str, int, bool, bool], ImageFont.FreeTypeFont] = {}
+_font_cache: dict[tuple[str, int, int, str], ImageFont.FreeTypeFont] = {}
 
 
-def _get_font(family: str, size: int, bold: bool = False, italic: bool = False) -> ImageFont.FreeTypeFont:
+def _get_font(family: str, size: int, weight: int = 400, style: str = "normal") -> ImageFont.FreeTypeFont:
     """Load a font from the fonts directory. Falls back to Pillow default."""
-    key = (family, size, bold, italic)
+    key = (family, size, weight, style)
     if key in _font_cache:
         return _font_cache[key]
 
-    # Try to find font file in fonts directory
     font = None
     font_files = {
         "Noto Sans Devanagari": "NotoSansDevanagari-Regular.ttf",
@@ -101,6 +103,55 @@ def _parse_hex_color(hex_color: str) -> tuple[int, int, int, int]:
     return (255, 255, 255, 255)
 
 
+def _apply_text_transform(text: str, transform: str) -> str:
+    """Apply CSS-like text-transform to a string."""
+    if transform == "uppercase":
+        return text.upper()
+    elif transform == "lowercase":
+        return text.lower()
+    elif transform == "capitalize":
+        return text.title()
+    return text
+
+
+def _create_gradient_image(width: int, height: int, color1: str, color2: str,
+                           angle: int = 0, gradient_type: str = "linear") -> Image.Image:
+    """Create a gradient image using cv2/numpy. Falls back to solid color1 if cv2 unavailable."""
+    c1 = _parse_hex_color(color1)
+    c2 = _parse_hex_color(color2)
+
+    if not HAS_CV2 or width <= 0 or height <= 0:
+        img = Image.new("RGBA", (max(1, width), max(1, height)), c1)
+        return img
+
+    if gradient_type == "radial":
+        # Radial gradient from center
+        cx, cy = width / 2, height / 2
+        max_dist = np.sqrt(cx ** 2 + cy ** 2)
+        y_coords, x_coords = np.mgrid[0:height, 0:width].astype(np.float32)
+        dist = np.sqrt((x_coords - cx) ** 2 + (y_coords - cy) ** 2) / max_dist
+        dist = np.clip(dist, 0, 1)
+    else:
+        # Linear gradient at given angle
+        rad = np.radians(angle)
+        cos_a, sin_a = np.cos(rad), np.sin(rad)
+        y_coords, x_coords = np.mgrid[0:height, 0:width].astype(np.float32)
+        # Project coordinates onto the gradient direction
+        proj = x_coords * cos_a + y_coords * sin_a
+        proj_min, proj_max = proj.min(), proj.max()
+        if proj_max - proj_min > 0:
+            dist = (proj - proj_min) / (proj_max - proj_min)
+        else:
+            dist = np.zeros_like(proj)
+
+    # Interpolate colors
+    gradient = np.zeros((height, width, 4), dtype=np.uint8)
+    for i in range(4):
+        gradient[:, :, i] = (c1[i] * (1 - dist) + c2[i] * dist).astype(np.uint8)
+
+    return Image.fromarray(gradient, "RGBA")
+
+
 # ── Export function ───────────────────────────────────────────────────────────
 
 async def export_video(
@@ -130,9 +181,7 @@ async def export_video(
     temp_preprocessed = None
     
     if subtitle_track.video_segments and len(subtitle_track.video_segments) > 0:
-        # Check if we actually need to cut (if not just 1 segment covering [0,duration])
         seg = subtitle_track.video_segments[0]
-        # Allow a small epsilon for floating point duration comparison
         is_uncut = len(subtitle_track.video_segments) == 1 and seg.source_start <= 0.1 and seg.source_end >= info.duration - 0.1
         
         if not is_uncut:
@@ -155,7 +204,6 @@ async def export_video(
                 await asyncio.to_thread(subprocess.run, concat_cmd, check=True)
                 source_video_path = temp_preprocessed.name
                 
-                # Re-evaluate video info after cutting
                 info = await asyncio.to_thread(get_video_info, source_video_path)
 
     total_frames = int(info.duration * fps)
@@ -246,9 +294,6 @@ async def export_video(
                 img = Image.frombytes("RGB", (w, h), raw)
 
                 if subtitle_track.video_rotation != 0:
-                    # expand=False keeps the exported video dimensions consistent
-                    # (it will crop elements rotated out of bounds).
-                    # A negative rotation matches CSS transform: rotate(deg) visually.
                     img = img.rotate(-subtitle_track.video_rotation, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=(0,0,0))
 
                 # Render subtitles
@@ -281,7 +326,6 @@ async def export_video(
                     encoder.kill()
                 encoder.wait()
             else:
-                # Wait for encoder to finish muxing the output gracefully
                 try:
                     encoder.wait(timeout=15)
                 except subprocess.TimeoutExpired:
@@ -352,12 +396,12 @@ def _render_subtitle_on_frame(
 
 
 def _paint_subtitle(draw, seg, track, anim_state, frame_w, frame_h):
-    """Paint subtitle text using Pillow."""
+    """Paint subtitle text using Pillow with support for all style properties."""
     style = seg.style
     pos_x = track.position_x
     pos_y = track.position_y
 
-    font = _get_font(style.font_family, style.font_size, style.bold, style.italic)
+    font = _get_font(style.font_family, style.font_size, style.font_weight, style.font_style)
 
     # Build display text based on animation
     anim_type = AnimationType(track.animation_type)
@@ -366,6 +410,9 @@ def _paint_subtitle(draw, seg, track, anim_state, frame_w, frame_h):
         display_text = seg.text[:anim_state.visible_char_count]
     else:
         display_text = seg.text
+
+    # Apply text transform
+    display_text = _apply_text_transform(display_text, style.text_transform)
 
     if not display_text.strip():
         return
@@ -387,33 +434,52 @@ def _paint_subtitle(draw, seg, track, anim_state, frame_w, frame_h):
     x = max(0, min(x, frame_w - text_w))
     y = max(0, min(y, frame_h - text_h))
 
+    # Compute effective opacity
+    effective_opacity = anim_state.opacity * style.text_opacity
+
     # Setup isolated text render canvas to support rotated components
     pad = style.bg_padding if style.bg_color else 0
-    text_overlay = Image.new("RGBA", (max(1, int(text_w + pad*2)), max(1, int(text_h + pad*2))), (0, 0, 0, 0))
+    canvas_w = max(1, int(text_w + pad * 2))
+    canvas_h = max(1, int(text_h + pad * 2))
+    text_overlay = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     text_draw = ImageDraw.Draw(text_overlay)
 
     if style.bg_color:
         bg_r, bg_g, bg_b, bg_a = _parse_hex_color(style.bg_color)
-        bg_a = int(bg_a * anim_state.opacity)
+        bg_a = int(bg_a * effective_opacity)
         text_draw.rectangle(
-            [0, 0, text_w + pad*2, text_h + pad*2],
+            [0, 0, text_w + pad * 2, text_h + pad * 2],
             fill=(bg_r, bg_g, bg_b, bg_a)
         )
     else:
         pad = 0
 
-    # Draw Text and Styles into text_draw (offset by pad)
-    if style.shadow_color and (style.shadow_offset_x or style.shadow_offset_y):
+    # Shadow (with blur support)
+    if style.shadow_enabled and style.shadow_color and (style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur):
         sr, sg, sb, sa = _parse_hex_color(style.shadow_color)
-        sa = int(sa * anim_state.opacity)
-        text_draw.text(
-            (pad + style.shadow_offset_x, pad + style.shadow_offset_y),
-            display_text, font=font, fill=(sr, sg, sb, sa)
-        )
+        sa = int(sa * effective_opacity)
 
-    if style.outline_color and style.outline_width > 0:
+        if style.shadow_blur > 0:
+            # Render shadow on separate image for blur
+            shadow_img = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+            shadow_draw = ImageDraw.Draw(shadow_img)
+            shadow_draw.text(
+                (pad + style.shadow_offset_x, pad + style.shadow_offset_y),
+                display_text, font=font, fill=(sr, sg, sb, sa)
+            )
+            shadow_img = shadow_img.filter(ImageFilter.GaussianBlur(radius=style.shadow_blur))
+            text_overlay = Image.alpha_composite(text_overlay, shadow_img)
+            text_draw = ImageDraw.Draw(text_overlay)
+        else:
+            text_draw.text(
+                (pad + style.shadow_offset_x, pad + style.shadow_offset_y),
+                display_text, font=font, fill=(sr, sg, sb, sa)
+            )
+
+    # Stroke
+    if style.stroke_enabled and style.outline_color and style.outline_width > 0:
         or_, og, ob, oa = _parse_hex_color(style.outline_color)
-        oa = int(oa * anim_state.opacity)
+        oa = int(oa * effective_opacity)
         ow = style.outline_width
         for dx in range(-ow, ow + 1):
             for dy in range(-ow, ow + 1):
@@ -422,10 +488,32 @@ def _paint_subtitle(draw, seg, track, anim_state, frame_w, frame_h):
                 text_draw.text((pad + dx, pad + dy), display_text, font=font,
                           fill=(or_, og, ob, oa))
 
-    # Main text
-    tr, tg, tb, ta = _parse_hex_color(style.text_color)
-    ta = int(ta * anim_state.opacity)
-    text_draw.text((pad, pad), display_text, font=font, fill=(tr, tg, tb, ta))
+    # Main text fill
+    if style.fill_type == "gradient":
+        # Render text as white mask, then composite with gradient
+        text_mask = Image.new("L", (canvas_w, canvas_h), 0)
+        mask_draw = ImageDraw.Draw(text_mask)
+        mask_draw.text((pad, pad), display_text, font=font, fill=255)
+
+        gradient_img = _create_gradient_image(
+            canvas_w, canvas_h,
+            style.gradient_color1, style.gradient_color2,
+            style.gradient_angle, style.gradient_type
+        )
+
+        # Apply opacity to gradient
+        if effective_opacity < 1.0:
+            gradient_arr = np.array(gradient_img)
+            gradient_arr[:, :, 3] = (gradient_arr[:, :, 3] * effective_opacity).astype(np.uint8)
+            gradient_img = Image.fromarray(gradient_arr, "RGBA")
+
+        # Apply text mask to gradient
+        gradient_img.putalpha(text_mask)
+        text_overlay = Image.alpha_composite(text_overlay, gradient_img)
+    else:
+        tr, tg, tb, ta = _parse_hex_color(style.text_color)
+        ta = int(ta * effective_opacity)
+        text_draw.text((pad, pad), display_text, font=font, fill=(tr, tg, tb, ta))
 
     # Perform Subtitle Rotation
     if style.rotation != 0:

@@ -99,8 +99,9 @@ class SubtitlePreview {
     drawSegmentUniform(ctx, seg, track, posX, posY, animState, scaleFactor, w, h) {
         const style = seg.style || track.global_style || {};
 
-        // Build display text
+        // Build display text with text transform
         let displayText = seg.words.map(w => w.word).join(' ');
+        displayText = this.applyTextTransform(displayText, style.text_transform);
 
         if (animState.visibleChars >= 0) {
             displayText = displayText.substring(0, animState.visibleChars);
@@ -109,15 +110,18 @@ class SubtitlePreview {
         if (!displayText.trim()) return;
 
         const fontSize = Math.round((style.font_size || 48) * scaleFactor);
-
-        // Set font
-        let fontStr = `${style.bold ? 'bold' : ''} ${style.italic ? 'italic' : ''} ${fontSize}px "${style.font_family || 'sans-serif'}"`.trim();
+        const fontStr = this.buildFontStr(style, fontSize);
         ctx.font = fontStr;
         ctx.textBaseline = 'top';
 
+        // Adjust for letter spacing
+        const letterSpacing = (style.letter_spacing || 0) * scaleFactor;
+        ctx.letterSpacing = `${letterSpacing}px`;
+
         const metrics = ctx.measureText(displayText);
         const textW = metrics.width;
-        const textH = fontSize * 1.2;
+        const lineHeight = style.line_height || 1.2;
+        const textH = fontSize * lineHeight;
 
         let x = posX * w - textW / 2;
         let y = posY * h - textH;
@@ -128,7 +132,9 @@ class SubtitlePreview {
         x = Math.max(0, Math.min(x, w - textW));
         y = Math.max(0, Math.min(y, h - textH));
 
-        ctx.globalAlpha = animState.opacity;
+        // Apply text opacity
+        const textOpacity = style.text_opacity ?? 1;
+        ctx.globalAlpha = animState.opacity * textOpacity;
 
         const rotationAngle = (style.rotation || 0) * Math.PI / 180;
         if (rotationAngle !== 0) {
@@ -146,16 +152,30 @@ class SubtitlePreview {
         }
 
         // Shadow
-        if (style.shadow_color && (style.shadow_offset_x || style.shadow_offset_y)) {
-            ctx.fillStyle = style.shadow_color;
-            ctx.fillText(displayText,
-                x + (style.shadow_offset_x || 0) * scaleFactor,
-                y + (style.shadow_offset_y || 0) * scaleFactor
-            );
+        if (style.shadow_enabled !== false && style.shadow_color && (style.shadow_offset_x || style.shadow_offset_y || style.shadow_blur)) {
+            ctx.save();
+            if (style.shadow_blur) {
+                ctx.shadowColor = style.shadow_color;
+                ctx.shadowBlur = (style.shadow_blur || 0) * scaleFactor;
+                ctx.shadowOffsetX = (style.shadow_offset_x || 0) * scaleFactor;
+                ctx.shadowOffsetY = (style.shadow_offset_y || 0) * scaleFactor;
+            } else {
+                ctx.fillStyle = style.shadow_color;
+            }
+            if (!style.shadow_blur) {
+                ctx.fillText(displayText,
+                    x + (style.shadow_offset_x || 0) * scaleFactor,
+                    y + (style.shadow_offset_y || 0) * scaleFactor
+                );
+            } else {
+                ctx.fillStyle = style.shadow_color;
+                ctx.fillText(displayText, x, y);
+            }
+            ctx.restore();
         }
 
-        // Outline
-        if (style.outline_color && style.outline_width > 0) {
+        // Outline / Stroke
+        if (style.stroke_enabled !== false && style.outline_color && style.outline_width > 0) {
             ctx.strokeStyle = style.outline_color;
             ctx.lineWidth = style.outline_width * scaleFactor * 2;
             ctx.lineJoin = 'round';
@@ -166,10 +186,13 @@ class SubtitlePreview {
         if (animState.highlightIdx >= 0) {
             this.drawKaraoke(ctx, seg, style, animState, x, y, fontSize, scaleFactor);
         } else {
-            // Main text
-            ctx.fillStyle = style.text_color || '#FFFFFF';
+            // Main text fill (solid or gradient)
+            ctx.fillStyle = this.buildFillStyle(ctx, style, x, y, textW, textH, scaleFactor);
             ctx.fillText(displayText, x, y);
         }
+
+        // Reset letter spacing
+        ctx.letterSpacing = '0px';
 
         if (rotationAngle !== 0) {
             ctx.restore();
@@ -187,9 +210,12 @@ class SubtitlePreview {
         seg.words.forEach(word => {
             const style = this.getWordStyle(word, segStyle, globalStyle, track);
             const fontSize = Math.round((style.font_size || 48) * scaleFactor);
-            let fontStr = `${style.bold ? 'bold' : ''} ${style.italic ? 'italic' : ''} ${fontSize}px "${style.font_family || 'sans-serif'}"`.trim();
+            const fontStr = this.buildFontStr(style, fontSize);
             ctx.font = fontStr;
-            const metrics = ctx.measureText(word.word + ' ');
+            const letterSpacing = (style.letter_spacing || 0) * scaleFactor;
+            ctx.letterSpacing = `${letterSpacing}px`;
+            const wordText = this.applyTextTransform(word.word, style.text_transform) + ' ';
+            const metrics = ctx.measureText(wordText);
             wordWidths.push(metrics.width);
             totalWidth += metrics.width;
         });
@@ -200,24 +226,30 @@ class SubtitlePreview {
 
         // Y position
         const baseFontSize = Math.round((segStyle.font_size || 48) * scaleFactor);
-        let currentY = posY * h - baseFontSize * 1.2;
+        const lineHeight = segStyle.line_height || 1.2;
+        let currentY = posY * h - baseFontSize * lineHeight;
         currentY += (animState.offsetY || 0) * scaleFactor;
 
-        ctx.globalAlpha = animState.opacity;
         ctx.textBaseline = 'top';
 
         // Render each word
         seg.words.forEach((word, idx) => {
             const style = this.getWordStyle(word, segStyle, globalStyle, track);
             const fontSize = Math.round((style.font_size || 48) * scaleFactor);
-            const wordText = word.word + ' ';
+            let wordText = this.applyTextTransform(word.word, style.text_transform) + ' ';
 
             // Set font for this word
-            let fontStr = `${style.bold ? 'bold' : ''} ${style.italic ? 'italic' : ''} ${fontSize}px "${style.font_family || 'sans-serif'}"`.trim();
+            const fontStr = this.buildFontStr(style, fontSize);
             ctx.font = fontStr;
+            const letterSpacing = (style.letter_spacing || 0) * scaleFactor;
+            ctx.letterSpacing = `${letterSpacing}px`;
 
             const wordW = wordWidths[idx];
-            const wordH = fontSize * 1.2;
+            const wordLineHeight = style.line_height || 1.2;
+            const wordH = fontSize * wordLineHeight;
+
+            const textOpacity = style.text_opacity ?? 1;
+            ctx.globalAlpha = animState.opacity * textOpacity;
 
             // Rotation
             const rotationAngle = (style.rotation || 0) * Math.PI / 180;
@@ -236,25 +268,39 @@ class SubtitlePreview {
             }
 
             // Shadow
-            if (style.shadow_color && (style.shadow_offset_x || style.shadow_offset_y)) {
-                ctx.fillStyle = style.shadow_color;
-                ctx.fillText(wordText,
-                    currentX + (style.shadow_offset_x || 0) * scaleFactor,
-                    currentY + (style.shadow_offset_y || 0) * scaleFactor
-                );
+            if (style.shadow_enabled !== false && style.shadow_color && (style.shadow_offset_x || style.shadow_offset_y || style.shadow_blur)) {
+                ctx.save();
+                if (style.shadow_blur) {
+                    ctx.shadowColor = style.shadow_color;
+                    ctx.shadowBlur = (style.shadow_blur || 0) * scaleFactor;
+                    ctx.shadowOffsetX = (style.shadow_offset_x || 0) * scaleFactor;
+                    ctx.shadowOffsetY = (style.shadow_offset_y || 0) * scaleFactor;
+                    ctx.fillStyle = style.shadow_color;
+                    ctx.fillText(wordText, currentX, currentY);
+                } else {
+                    ctx.fillStyle = style.shadow_color;
+                    ctx.fillText(wordText,
+                        currentX + (style.shadow_offset_x || 0) * scaleFactor,
+                        currentY + (style.shadow_offset_y || 0) * scaleFactor
+                    );
+                }
+                ctx.restore();
             }
 
-            // Outline
-            if (style.outline_color && style.outline_width > 0) {
+            // Outline / Stroke
+            if (style.stroke_enabled !== false && style.outline_color && style.outline_width > 0) {
                 ctx.strokeStyle = style.outline_color;
                 ctx.lineWidth = style.outline_width * scaleFactor * 2;
                 ctx.lineJoin = 'round';
                 ctx.strokeText(wordText, currentX, currentY);
             }
 
-            // Main text
-            ctx.fillStyle = style.text_color || '#FFFFFF';
+            // Main text fill
+            ctx.fillStyle = this.buildFillStyle(ctx, style, currentX, currentY, wordW, wordH, scaleFactor);
             ctx.fillText(wordText, currentX, currentY);
+
+            // Reset letter spacing
+            ctx.letterSpacing = '0px';
 
             if (rotationAngle !== 0) {
                 ctx.restore();
@@ -282,7 +328,7 @@ class SubtitlePreview {
     drawKaraoke(ctx, seg, style, animState, baseX, baseY, fontSize, scale) {
         let curX = baseX;
         seg.words.forEach((word, idx) => {
-            const text = word.word + ' ';
+            const text = this.applyTextTransform(word.word, style.text_transform) + ' ';
             if (idx === animState.highlightIdx) {
                 ctx.fillStyle = '#FFD700';
                 const hlFontSize = Math.round(fontSize * 1.15);
@@ -297,6 +343,56 @@ class SubtitlePreview {
                 curX += ctx.measureText(text).width;
             }
         });
+    }
+
+    // Build font string from style
+    buildFontStr(style, fontSize) {
+        const weight = style.font_weight || 400;
+        const fontStyle = style.font_style || 'normal';
+        // Backwards compat: legacy bold/italic
+        const legacyWeight = style.bold ? 'bold' : weight;
+        const legacyStyle = style.italic ? 'italic' : fontStyle;
+        return `${legacyStyle} ${legacyWeight} ${fontSize}px "${style.font_family || 'sans-serif'}"`;
+    }
+
+    // Apply text transform
+    applyTextTransform(text, transform) {
+        switch (transform) {
+            case 'uppercase': return text.toUpperCase();
+            case 'lowercase': return text.toLowerCase();
+            case 'capitalize': return text.replace(/\b\w/g, c => c.toUpperCase());
+            default: return text;
+        }
+    }
+
+    // Build fill style (solid color or gradient)
+    buildFillStyle(ctx, style, x, y, textW, textH, scaleFactor) {
+        if (style.fill_type === 'gradient') {
+            const angle = (style.gradient_angle || 0) * Math.PI / 180;
+            const c1 = style.gradient_color1 || '#FFFFFF';
+            const c2 = style.gradient_color2 || '#FFD700';
+
+            if (style.gradient_type === 'radial') {
+                const cx = x + textW / 2;
+                const cy = y + textH / 2;
+                const r = Math.max(textW, textH) / 2;
+                const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+                grad.addColorStop(0, c1);
+                grad.addColorStop(1, c2);
+                return grad;
+            } else {
+                // Linear gradient
+                const dx = Math.cos(angle) * textW / 2;
+                const dy = Math.sin(angle) * textH / 2;
+                const cx = x + textW / 2;
+                const cy = y + textH / 2;
+                const grad = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
+                grad.addColorStop(0, c1);
+                grad.addColorStop(1, c2);
+                return grad;
+            }
+        }
+        return style.text_color || '#FFFFFF';
     }
 }
 

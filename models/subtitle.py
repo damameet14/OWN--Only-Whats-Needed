@@ -43,20 +43,46 @@ class MediaSegment:
 @dataclass
 class SubtitleStyle:
     """Visual style for subtitle text."""
+    # ── Font ──────────────────────────────────────────────────────────────
     font_family: str = "Noto Sans Devanagari"
     font_size: int = 48
-    text_color: str = "#FFFFFF"
+    font_weight: int = 400          # 100–900 (400=normal, 700=bold)
+    font_style: str = "normal"      # normal / italic / oblique
+    text_transform: str = "none"    # none / uppercase / lowercase / capitalize
+
+    # ── Fill ──────────────────────────────────────────────────────────────
+    fill_type: str = "solid"        # solid / gradient
+    text_color: str = "#FFFFFF"     # solid fill color
+    gradient_color1: str = "#FFFFFF"
+    gradient_color2: str = "#FFD700"
+    gradient_angle: int = 0         # degrees (0 = left-to-right)
+    gradient_type: str = "linear"   # linear / radial
+
+    # ── Stroke ────────────────────────────────────────────────────────────
+    stroke_enabled: bool = True
     outline_color: str = "#000000"
     outline_width: int = 2
+
+    # ── Shadow ────────────────────────────────────────────────────────────
+    shadow_enabled: bool = True
     shadow_color: str = "#80000000"
+    shadow_blur: int = 0            # blur radius (px)
     shadow_offset_x: int = 2
     shadow_offset_y: int = 2
-    bg_color: str = ""           # empty = no background
+
+    # ── Spacing ───────────────────────────────────────────────────────────
+    letter_spacing: float = 0       # px
+    word_spacing: float = 0         # px
+    line_height: float = 1.2        # multiplier
+
+    # ── Opacity ───────────────────────────────────────────────────────────
+    text_opacity: float = 1.0       # 0.0–1.0
+
+    # ── Legacy / Layout ───────────────────────────────────────────────────
+    bg_color: str = ""              # empty = no background
     bg_padding: int = 8
-    bold: bool = False
-    italic: bool = False
-    alignment: str = "center"    # left / center / right
-    rotation: int = 0            # angle in degrees
+    alignment: str = "center"       # left / center / right
+    rotation: int = 0               # angle in degrees
 
     def copy(self) -> SubtitleStyle:
         return copy.deepcopy(self)
@@ -66,7 +92,19 @@ class SubtitleStyle:
 
     @classmethod
     def from_dict(cls, d: dict) -> SubtitleStyle:
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        data = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        # Backwards compatibility: map legacy bold/italic to new fields
+        if "bold" in d and "font_weight" not in d:
+            data["font_weight"] = 700 if d["bold"] else 400
+        if "italic" in d and "font_style" not in d:
+            data["font_style"] = "italic" if d["italic"] else "normal"
+        # Legacy: shadow_color presence implied shadow_enabled
+        if "shadow_enabled" not in d and "shadow_color" in d:
+            data["shadow_enabled"] = bool(d["shadow_color"])
+        # Legacy: outline presence implied stroke_enabled
+        if "stroke_enabled" not in d and "outline_color" in d:
+            data["stroke_enabled"] = bool(d["outline_color"]) and d.get("outline_width", 0) > 0
+        return cls(**data)
 
 
 @dataclass

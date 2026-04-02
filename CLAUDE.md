@@ -71,13 +71,32 @@ stt_vosk/
 
 **Subtitle System (`models/subtitle.py`)**: Data models for subtitles including:
 - `WordTiming`: Single word with time span
+- `StyledWord`: Word with optional style override and special marking
 - `SubtitleSegment`: Group of styled words
-- `SubtitleTrack`: Complete subtitle track with global style
+- `SubtitleTrack`: Complete subtitle track with global style and special groups
 
 **Desktop App (`desktop/`)**:
 - `tray_app.py`: System tray icon with menu for model downloads
 - `main_window.py`: PySide6 desktop window embedding web editor
 - `setup.py`: First-time setup wizard
+
+### Subtitle Data Model Hierarchy
+
+The subtitle system uses a hierarchical model:
+
+```
+SubtitleTrack
+├── global_style: SubtitleStyle
+├── special_groups: dict[str, SpecialGroup]
+├── segments: list[SubtitleSegment]
+│   ├── style: SubtitleStyle
+│   └── words: list[StyledWord]
+│       ├── style_override: SubtitleStyle | null
+│       ├── is_special: bool
+│       └── group_id: str | null
+```
+
+**Special Words Feature**: Words can be marked as special (`is_special: true`) and optionally grouped (`group_id`). Special words can have individual style overrides or inherit from their group's style. This is used for highlighting specific words in the subtitle track.
 
 ### Transcription Flow
 
@@ -129,6 +148,31 @@ FFmpeg is used for:
 
 FFmpeg commands run with `CREATE_NO_WINDOW` flag on Windows to avoid console popups.
 
+### Web Frontend Architecture
+
+The web editor is split into three main JavaScript modules:
+
+**`web/js/editor.js`**: Main controller that wires together all components. Handles:
+- Project loading and saving
+- Word selection and special marking
+- Style control initialization
+- Tab switching and UI state management
+- Auto-save with debouncing
+
+**`web/js/preview.js`**: Canvas-based subtitle preview overlay. Renders subtitles on a canvas over the video element, handling:
+- Segment detection based on video time
+- Animation states (fade, slide, typewriter, etc.)
+- Per-word styling for special words
+- Font scaling and positioning
+
+**`web/js/timeline.js`**: Canvas-based timeline widget. Displays:
+- Video and audio tracks with sprite/waveform
+- Subtitle segments with special word highlighting
+- Playhead and selection range
+- Zoom and scroll controls
+
+**Important**: When subtitle data is loaded from JSON (via `loadProject`), the `ensureSubtitleTrackMethods()` function must be called to add methods like `create_group`, `delete_group`, and `copy` to the data objects, since JSON deserialization loses class methods.
+
 ## API Endpoints
 
 ### Projects
@@ -168,3 +212,5 @@ FFmpeg commands run with `CREATE_NO_WINDOW` flag on Windows to avoid console pop
 - Model directories are auto-scanned on startup and registered in the database
 - Vosk models are stored in project root, Whisper models in `vosk_models/` directory
 - The desktop tray app runs detached from the main window to allow both to coexist
+- When modifying subtitle data in JavaScript, always call `timeline.draw()` to update the timeline visualization
+- The `ensureSubtitleTrackMethods()` function is critical for JSON-loaded subtitle data to work properly

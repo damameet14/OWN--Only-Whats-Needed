@@ -95,9 +95,10 @@
 
         <!-- Right Panel — Styles -->
         <div class="w-72 flex flex-col border-l border-white/10 bg-bg-dark h-full max-h-[calc(100vh-4rem)]">
-            <!-- Top Level Tabs: Style / Presets -->
+            <!-- Top Level Tabs: Style / Video / Presets -->
             <div class="flex border-b border-white/10 flex-shrink-0">
                 <button class="tab-btn active flex-1" data-main-tab="style">Style</button>
+                <button class="tab-btn flex-1" data-main-tab="video">Video</button>
                 <button class="tab-btn flex-1" data-main-tab="presets">Presets</button>
             </div>
 
@@ -119,67 +120,172 @@
                     </div>
 
                     <!-- All: Text Panel -->
-                    <div class="flex-1 overflow-y-auto p-4 space-y-5" id="all-text-panel">
-                        <!-- Font -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Font Family</label>
-                            <select id="global-font" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
-                                <option value="Noto Sans Devanagari" class="bg-bg-dark text-slate-100">Noto Sans Devanagari</option>
-                                <option value="Mukta" class="bg-bg-dark text-slate-100">Mukta</option>
-                                <option value="Baloo 2" class="bg-bg-dark text-slate-100">Baloo 2</option>
-                            </select>
-                        </div>
-                        <!-- Font Size -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Font Size: <span id="global-font-size-val">48</span></label>
-                            <input type="range" id="global-font-size" min="16" max="96" value="48" class="w-full accent-primary"/>
-                        </div>
-                        <!-- Text Color -->
-                        <div class="flex gap-3">
-                            <div class="flex-1">
-                                <label class="text-xs font-medium text-slate-400 mb-1 block">Text Color</label>
-                                <input type="color" id="global-text-color" value="#FFFFFF" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+                    <div class="flex-1 overflow-y-auto p-3 space-y-1" id="all-text-panel">
+
+                        <!-- §1 Font -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🔤 Font</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Font Family</label>
+                                    <select id="global-font" class="style-select">
+                                        <option value="Noto Sans Devanagari">Noto Sans Devanagari</option>
+                                        <option value="Mukta">Mukta</option>
+                                        <option value="Baloo 2">Baloo 2</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="style-label">Font Size: <span id="global-font-size-val">48</span></label>
+                                    <input type="range" id="global-font-size" min="16" max="120" value="48" class="style-range"/>
+                                </div>
+                                <div>
+                                    <label class="style-label">Font Weight: <span id="global-font-weight-val">400</span></label>
+                                    <input type="range" id="global-font-weight" min="100" max="900" step="100" value="400" class="style-range"/>
+                                </div>
+                                <div>
+                                    <label class="style-label">Font Style</label>
+                                    <select id="global-font-style" class="style-select">
+                                        <option value="normal">Normal</option>
+                                        <option value="italic">Italic</option>
+                                        <option value="oblique">Oblique</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="style-label">Text Transform</label>
+                                    <select id="global-text-transform" class="style-select">
+                                        <option value="none">None</option>
+                                        <option value="uppercase">UPPERCASE</option>
+                                        <option value="lowercase">lowercase</option>
+                                        <option value="capitalize">Capitalize</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="flex-1">
-                                <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Color</label>
-                                <input type="color" id="global-outline-color" value="#000000" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+                        </details>
+
+                        <!-- §2 Fill -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🎨 Fill</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Fill Type</label>
+                                    <select id="global-fill-type" class="style-select">
+                                        <option value="solid">Solid</option>
+                                        <option value="gradient">Gradient</option>
+                                    </select>
+                                </div>
+                                <!-- Solid controls -->
+                                <div id="global-solid-controls">
+                                    <label class="style-label">Color</label>
+                                    <input type="color" id="global-text-color" value="#FFFFFF" class="style-color"/>
+                                </div>
+                                <!-- Gradient controls -->
+                                <div id="global-gradient-controls" class="hidden space-y-3">
+                                    <div class="flex gap-2">
+                                        <div class="flex-1">
+                                            <label class="style-label">Stop 1</label>
+                                            <input type="color" id="global-grad-color1" value="#FFFFFF" class="style-color"/>
+                                        </div>
+                                        <div class="flex-1">
+                                            <label class="style-label">Stop 2</label>
+                                            <input type="color" id="global-grad-color2" value="#FFD700" class="style-color"/>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Angle: <span id="global-grad-angle-val">0°</span></label>
+                                        <input type="range" id="global-grad-angle" min="0" max="360" value="0" class="style-range"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Type</label>
+                                        <select id="global-grad-type" class="style-select">
+                                            <option value="linear">Linear</option>
+                                            <option value="radial">Radial</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <!-- Outline Width -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Width: <span id="global-outline-w-val">2</span></label>
-                            <input type="range" id="global-outline-width" min="0" max="8" value="2" class="w-full accent-primary"/>
-                        </div>
-                        <!-- Bold/Italic -->
-                        <div class="flex gap-2">
-                            <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="global-bold"><b>B</b></button>
-                            <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="global-italic"><i>I</i></button>
-                        </div>
-                        <!-- Position -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Y Position: <span id="global-pos-y-val">90%</span></label>
-                            <input type="range" id="global-pos-y" min="10" max="95" value="90" class="w-full accent-primary"/>
-                        </div>
-                        <!-- Rotations -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Subtitle Rotation: <span id="global-sub-rot-val">0°</span></label>
-                            <input type="range" id="global-sub-rotation" min="-180" max="180" value="0" class="w-full accent-primary"/>
-                        </div>
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Video Rotation: <span id="global-vid-rot-val">0°</span></label>
-                            <input type="range" id="global-vid-rotation" min="-180" max="180" value="0" class="w-full accent-primary"/>
-                        </div>
-                        <!-- Words Per Line -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Words Per Line: <span id="global-wpl-val">4</span></label>
-                            <input type="range" id="global-wpl" min="1" max="15" value="4" class="w-full accent-primary"/>
-                        </div>
-                        <!-- Shadow -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">
-                                <input type="checkbox" id="global-shadow" class="mr-2 accent-primary" checked/> Drop Shadow
-                            </label>
-                        </div>
+                        </details>
+
+                        <!-- §3 Stroke -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🟫 Stroke</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">
+                                        <input type="checkbox" id="global-stroke-enabled" class="mr-2 accent-primary" checked/> Enable Stroke
+                                    </label>
+                                </div>
+                                <div id="global-stroke-controls">
+                                    <div>
+                                        <label class="style-label">Color</label>
+                                        <input type="color" id="global-outline-color" value="#000000" class="style-color"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Width: <span id="global-outline-w-val">2</span></label>
+                                        <input type="range" id="global-outline-width" min="0" max="10" value="2" class="style-range"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- §4 Shadow -->
+                        <details class="style-group">
+                            <summary class="style-group-header">🌫️ Shadow</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">
+                                        <input type="checkbox" id="global-shadow-enabled" class="mr-2 accent-primary" checked/> Enable Shadow
+                                    </label>
+                                </div>
+                                <div id="global-shadow-controls">
+                                    <div>
+                                        <label class="style-label">Color</label>
+                                        <input type="color" id="global-shadow-color" value="#000000" class="style-color"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Blur: <span id="global-shadow-blur-val">0</span></label>
+                                        <input type="range" id="global-shadow-blur" min="0" max="20" value="0" class="style-range"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Offset X: <span id="global-shadow-ox-val">2</span></label>
+                                        <input type="range" id="global-shadow-ox" min="-20" max="20" value="2" class="style-range"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Offset Y: <span id="global-shadow-oy-val">2</span></label>
+                                        <input type="range" id="global-shadow-oy" min="-20" max="20" value="2" class="style-range"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- §5 Spacing -->
+                        <details class="style-group">
+                            <summary class="style-group-header">🔠 Spacing</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Letter Spacing: <span id="global-letter-spacing-val">0</span>px</label>
+                                    <input type="range" id="global-letter-spacing" min="-5" max="20" step="0.5" value="0" class="style-range"/>
+                                </div>
+                                <div>
+                                    <label class="style-label">Word Spacing: <span id="global-word-spacing-val">0</span>px</label>
+                                    <input type="range" id="global-word-spacing" min="-5" max="30" step="0.5" value="0" class="style-range"/>
+                                </div>
+                                <div>
+                                    <label class="style-label">Line Height: <span id="global-line-height-val">1.2</span></label>
+                                    <input type="range" id="global-line-height" min="0.8" max="3.0" step="0.1" value="1.2" class="style-range"/>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- §6 Opacity -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🎯 Opacity</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Text Opacity: <span id="global-opacity-val">100</span>%</label>
+                                    <input type="range" id="global-opacity" min="0" max="100" value="100" class="style-range"/>
+                                </div>
+                            </div>
+                        </details>
                     </div>
 
                     <!-- All: Templates Panel -->
@@ -190,20 +296,20 @@
                     <!-- All: Animation Panel -->
                     <div class="flex-1 overflow-y-auto p-4 space-y-4 hidden" id="all-animation-panel">
                         <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Animation Type</label>
-                            <select id="global-animation" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
-                                <option value="none" class="bg-bg-dark text-slate-100">None</option>
-                                <option value="fade" class="bg-bg-dark text-slate-100">Fade In/Out</option>
-                                <option value="slide_up" class="bg-bg-dark text-slate-100">Slide Up</option>
-                                <option value="slide_down" class="bg-bg-dark text-slate-100">Slide Down</option>
-                                <option value="typewriter" class="bg-bg-dark text-slate-100">Typewriter</option>
-                                <option value="karaoke" class="bg-bg-dark text-slate-100">Karaoke Highlight</option>
-                                <option value="pop" class="bg-bg-dark text-slate-100">Pop / Scale</option>
+                            <label class="style-label">Animation Type</label>
+                            <select id="global-animation" class="style-select">
+                                <option value="none">None</option>
+                                <option value="fade">Fade In/Out</option>
+                                <option value="slide_up">Slide Up</option>
+                                <option value="slide_down">Slide Down</option>
+                                <option value="typewriter">Typewriter</option>
+                                <option value="karaoke">Karaoke Highlight</option>
+                                <option value="pop">Pop / Scale</option>
                             </select>
                         </div>
                         <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Duration: <span id="global-anim-dur-val">0.3s</span></label>
-                            <input type="range" id="global-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="w-full accent-primary"/>
+                            <label class="style-label">Duration: <span id="global-anim-dur-val">0.3s</span></label>
+                            <input type="range" id="global-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="style-range"/>
                         </div>
                     </div>
                 </div>
@@ -223,48 +329,170 @@
                     </div>
 
                     <!-- Specials: Text Panel -->
-                    <div class="flex-1 overflow-y-auto p-4 space-y-5 hidden" id="specials-text-panel">
-                        <!-- Font -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Font Family</label>
-                            <select id="special-font" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
-                                <option value="Noto Sans Devanagari" class="bg-bg-dark text-slate-100">Noto Sans Devanagari</option>
-                                <option value="Mukta" class="bg-bg-dark text-slate-100">Mukta</option>
-                                <option value="Baloo 2" class="bg-bg-dark text-slate-100">Baloo 2</option>
-                            </select>
-                        </div>
-                        <!-- Font Size -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Font Size: <span id="special-font-size-val">48</span></label>
-                            <input type="range" id="special-font-size" min="16" max="96" value="48" class="w-full accent-primary"/>
-                        </div>
-                        <!-- Text Color -->
-                        <div class="flex gap-3">
-                            <div class="flex-1">
-                                <label class="text-xs font-medium text-slate-400 mb-1 block">Text Color</label>
-                                <input type="color" id="special-text-color" value="#FFFFFF" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+                    <div class="flex-1 overflow-y-auto p-3 space-y-1 hidden" id="specials-text-panel">
+
+                        <!-- §1 Font -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🔤 Font</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Font Family</label>
+                                    <select id="special-font" class="style-select">
+                                        <option value="Noto Sans Devanagari">Noto Sans Devanagari</option>
+                                        <option value="Mukta">Mukta</option>
+                                        <option value="Baloo 2">Baloo 2</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="style-label">Font Size: <span id="special-font-size-val">48</span></label>
+                                    <input type="range" id="special-font-size" min="16" max="120" value="48" class="style-range"/>
+                                </div>
+                                <div>
+                                    <label class="style-label">Font Weight: <span id="special-font-weight-val">400</span></label>
+                                    <input type="range" id="special-font-weight" min="100" max="900" step="100" value="400" class="style-range"/>
+                                </div>
+                                <div>
+                                    <label class="style-label">Font Style</label>
+                                    <select id="special-font-style" class="style-select">
+                                        <option value="normal">Normal</option>
+                                        <option value="italic">Italic</option>
+                                        <option value="oblique">Oblique</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="style-label">Text Transform</label>
+                                    <select id="special-text-transform" class="style-select">
+                                        <option value="none">None</option>
+                                        <option value="uppercase">UPPERCASE</option>
+                                        <option value="lowercase">lowercase</option>
+                                        <option value="capitalize">Capitalize</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="flex-1">
-                                <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Color</label>
-                                <input type="color" id="special-outline-color" value="#000000" class="w-full h-8 rounded bg-white/5 border border-white/10 cursor-pointer"/>
+                        </details>
+
+                        <!-- §2 Fill -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🎨 Fill</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Fill Type</label>
+                                    <select id="special-fill-type" class="style-select">
+                                        <option value="solid">Solid</option>
+                                        <option value="gradient">Gradient</option>
+                                    </select>
+                                </div>
+                                <div id="special-solid-controls">
+                                    <label class="style-label">Color</label>
+                                    <input type="color" id="special-text-color" value="#FFFFFF" class="style-color"/>
+                                </div>
+                                <div id="special-gradient-controls" class="hidden space-y-3">
+                                    <div class="flex gap-2">
+                                        <div class="flex-1">
+                                            <label class="style-label">Stop 1</label>
+                                            <input type="color" id="special-grad-color1" value="#FFFFFF" class="style-color"/>
+                                        </div>
+                                        <div class="flex-1">
+                                            <label class="style-label">Stop 2</label>
+                                            <input type="color" id="special-grad-color2" value="#FFD700" class="style-color"/>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Angle: <span id="special-grad-angle-val">0°</span></label>
+                                        <input type="range" id="special-grad-angle" min="0" max="360" value="0" class="style-range"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Type</label>
+                                        <select id="special-grad-type" class="style-select">
+                                            <option value="linear">Linear</option>
+                                            <option value="radial">Radial</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <!-- Outline Width -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Outline Width: <span id="special-outline-w-val">2</span></label>
-                            <input type="range" id="special-outline-width" min="0" max="8" value="2" class="w-full accent-primary"/>
-                        </div>
-                        <!-- Bold/Italic -->
-                        <div class="flex gap-2">
-                            <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="special-bold"><b>B</b></button>
-                            <button class="flex-1 py-1.5 text-sm rounded-lg border border-white/10 text-white hover:bg-white/10 transition-colors" id="special-italic"><i>I</i></button>
-                        </div>
-                        <!-- Shadow -->
-                        <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">
-                                <input type="checkbox" id="special-shadow" class="mr-2 accent-primary" checked/> Drop Shadow
-                            </label>
-                        </div>
+                        </details>
+
+                        <!-- §3 Stroke -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🟫 Stroke</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">
+                                        <input type="checkbox" id="special-stroke-enabled" class="mr-2 accent-primary" checked/> Enable Stroke
+                                    </label>
+                                </div>
+                                <div id="special-stroke-controls">
+                                    <div>
+                                        <label class="style-label">Color</label>
+                                        <input type="color" id="special-outline-color" value="#000000" class="style-color"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Width: <span id="special-outline-w-val">2</span></label>
+                                        <input type="range" id="special-outline-width" min="0" max="10" value="2" class="style-range"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- §4 Shadow -->
+                        <details class="style-group">
+                            <summary class="style-group-header">🌫️ Shadow</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">
+                                        <input type="checkbox" id="special-shadow-enabled" class="mr-2 accent-primary" checked/> Enable Shadow
+                                    </label>
+                                </div>
+                                <div id="special-shadow-controls">
+                                    <div>
+                                        <label class="style-label">Color</label>
+                                        <input type="color" id="special-shadow-color" value="#000000" class="style-color"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Blur: <span id="special-shadow-blur-val">0</span></label>
+                                        <input type="range" id="special-shadow-blur" min="0" max="20" value="0" class="style-range"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Offset X: <span id="special-shadow-ox-val">2</span></label>
+                                        <input type="range" id="special-shadow-ox" min="-20" max="20" value="2" class="style-range"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">Offset Y: <span id="special-shadow-oy-val">2</span></label>
+                                        <input type="range" id="special-shadow-oy" min="-20" max="20" value="2" class="style-range"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- §5 Spacing -->
+                        <details class="style-group">
+                            <summary class="style-group-header">🔠 Spacing</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Letter Spacing: <span id="special-letter-spacing-val">0</span>px</label>
+                                    <input type="range" id="special-letter-spacing" min="-5" max="20" step="0.5" value="0" class="style-range"/>
+                                </div>
+                                <div>
+                                    <label class="style-label">Word Spacing: <span id="special-word-spacing-val">0</span>px</label>
+                                    <input type="range" id="special-word-spacing" min="-5" max="30" step="0.5" value="0" class="style-range"/>
+                                </div>
+                                <div>
+                                    <label class="style-label">Line Height: <span id="special-line-height-val">1.2</span></label>
+                                    <input type="range" id="special-line-height" min="0.8" max="3.0" step="0.1" value="1.2" class="style-range"/>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- §6 Opacity -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🎯 Opacity</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Text Opacity: <span id="special-opacity-val">100</span>%</label>
+                                    <input type="range" id="special-opacity" min="0" max="100" value="100" class="style-range"/>
+                                </div>
+                            </div>
+                        </details>
                     </div>
 
                     <!-- Specials: Templates Panel -->
@@ -275,21 +503,35 @@
                     <!-- Specials: Animation Panel -->
                     <div class="flex-1 overflow-y-auto p-4 space-y-4 hidden" id="specials-animation-panel">
                         <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Animation Type</label>
-                            <select id="special-animation" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
-                                <option value="none" class="bg-bg-dark text-slate-100">None</option>
-                                <option value="fade" class="bg-bg-dark text-slate-100">Fade In/Out</option>
-                                <option value="slide_up" class="bg-bg-dark text-slate-100">Slide Up</option>
-                                <option value="slide_down" class="bg-bg-dark text-slate-100">Slide Down</option>
-                                <option value="typewriter" class="bg-bg-dark text-slate-100">Typewriter</option>
-                                <option value="karaoke" class="bg-bg-dark text-slate-100">Karaoke Highlight</option>
-                                <option value="pop" class="bg-bg-dark text-slate-100">Pop / Scale</option>
+                            <label class="style-label">Animation Type</label>
+                            <select id="special-animation" class="style-select">
+                                <option value="none">None</option>
+                                <option value="fade">Fade In/Out</option>
+                                <option value="slide_up">Slide Up</option>
+                                <option value="slide_down">Slide Down</option>
+                                <option value="typewriter">Typewriter</option>
+                                <option value="karaoke">Karaoke Highlight</option>
+                                <option value="pop">Pop / Scale</option>
                             </select>
                         </div>
                         <div>
-                            <label class="text-xs font-medium text-slate-400 mb-1 block">Duration: <span id="special-anim-dur-val">0.3s</span></label>
-                            <input type="range" id="special-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="w-full accent-primary"/>
+                            <label class="style-label">Duration: <span id="special-anim-dur-val">0.3s</span></label>
+                            <input type="range" id="special-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="style-range"/>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Section -->
+            <div class="flex-1 flex flex-col min-h-0 hidden" id="video-section">
+                <div class="flex-1 overflow-y-auto p-4 space-y-5">
+                    <div>
+                        <label class="style-label">Video Rotation: <span id="global-vid-rot-val">0°</span></label>
+                        <input type="range" id="global-vid-rotation" min="-180" max="180" value="0" class="style-range"/>
+                    </div>
+                    <div>
+                        <label class="style-label">Words Per Line: <span id="global-wpl-val">4</span></label>
+                        <input type="range" id="global-wpl" min="1" max="15" value="4" class="style-range"/>
                     </div>
                 </div>
             </div>

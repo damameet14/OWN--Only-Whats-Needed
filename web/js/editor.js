@@ -680,39 +680,96 @@ function applyTrackToControls(track) {
         const el = document.getElementById(id);
         if (el) el.value = val;
     };
+    const setText = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    };
 
+    // §1 Font
     setVal('global-font', style.font_family || 'Noto Sans Devanagari');
     setVal('global-font-size', style.font_size || 48);
-    document.getElementById('global-font-size-val').textContent = style.font_size || 48;
+    setText('global-font-size-val', style.font_size || 48);
+    setVal('global-font-weight', style.font_weight || 400);
+    setText('global-font-weight-val', style.font_weight || 400);
+    setVal('global-font-style', style.font_style || 'normal');
+    setVal('global-text-transform', style.text_transform || 'none');
+
+    // §2 Fill
+    setVal('global-fill-type', style.fill_type || 'solid');
     setVal('global-text-color', style.text_color || '#FFFFFF');
+    setVal('global-grad-color1', style.gradient_color1 || '#FFFFFF');
+    setVal('global-grad-color2', style.gradient_color2 || '#FFD700');
+    setVal('global-grad-angle', style.gradient_angle || 0);
+    setText('global-grad-angle-val', `${style.gradient_angle || 0}°`);
+    setVal('global-grad-type', style.gradient_type || 'linear');
+    toggleFillControls('global', style.fill_type || 'solid');
+
+    // §3 Stroke
+    const strokeCheck = document.getElementById('global-stroke-enabled');
+    if (strokeCheck) strokeCheck.checked = style.stroke_enabled !== false;
     setVal('global-outline-color', style.outline_color || '#000000');
     setVal('global-outline-width', style.outline_width ?? 2);
-    document.getElementById('global-outline-w-val').textContent = style.outline_width ?? 2;
-    setVal('global-pos-y', Math.round((track.position_y || 0.9) * 100));
-    document.getElementById('global-pos-y-val').textContent = `${Math.round((track.position_y || 0.9) * 100)}%`;
+    setText('global-outline-w-val', style.outline_width ?? 2);
+    toggleStrokeControls('global', style.stroke_enabled !== false);
 
-    setVal('global-sub-rotation', style.rotation || 0);
-    const subVal = document.getElementById('global-sub-rot-val');
-    if (subVal) subVal.textContent = `${style.rotation || 0}°`;
+    // §4 Shadow
+    const shadowCheck = document.getElementById('global-shadow-enabled');
+    if (shadowCheck) shadowCheck.checked = style.shadow_enabled !== false;
+    setVal('global-shadow-color', (style.shadow_color || '#000000').replace(/^#../, '#'));
+    setVal('global-shadow-blur', style.shadow_blur || 0);
+    setText('global-shadow-blur-val', style.shadow_blur || 0);
+    setVal('global-shadow-ox', style.shadow_offset_x ?? 2);
+    setText('global-shadow-ox-val', style.shadow_offset_x ?? 2);
+    setVal('global-shadow-oy', style.shadow_offset_y ?? 2);
+    setText('global-shadow-oy-val', style.shadow_offset_y ?? 2);
+    toggleShadowControls('global', style.shadow_enabled !== false);
 
+    // §5 Spacing
+    setVal('global-letter-spacing', style.letter_spacing || 0);
+    setText('global-letter-spacing-val', style.letter_spacing || 0);
+    setVal('global-word-spacing', style.word_spacing || 0);
+    setText('global-word-spacing-val', style.word_spacing || 0);
+    setVal('global-line-height', style.line_height || 1.2);
+    setText('global-line-height-val', style.line_height || 1.2);
+
+    // §6 Opacity
+    setVal('global-opacity', Math.round((style.text_opacity ?? 1) * 100));
+    setText('global-opacity-val', Math.round((style.text_opacity ?? 1) * 100));
+
+    // Video section
     setVal('global-vid-rotation', track.video_rotation || 0);
-    const vidVal = document.getElementById('global-vid-rot-val');
-    if (vidVal) vidVal.textContent = `${track.video_rotation || 0}°`;
-
+    setText('global-vid-rot-val', `${track.video_rotation || 0}°`);
     const video = document.getElementById('video-player');
-    if (video) {
-        video.style.transform = `rotate(${track.video_rotation || 0}deg)`;
-    }
-
+    if (video) video.style.transform = `rotate(${track.video_rotation || 0}deg)`;
     setVal('global-wpl', track.words_per_line || 4);
-    document.getElementById('global-wpl-val').textContent = track.words_per_line || 4;
+    setText('global-wpl-val', track.words_per_line || 4);
+
+    // Animation
     setVal('global-animation', track.animation_type || 'none');
     setVal('global-anim-duration', track.animation_duration || 0.3);
-    document.getElementById('global-anim-dur-val').textContent = `${track.animation_duration || 0.3}s`;
+    setText('global-anim-dur-val', `${track.animation_duration || 0.3}s`);
+}
 
-    if (style.bold) document.getElementById('global-bold').classList.add('bg-primary/30');
-    if (style.italic) document.getElementById('global-italic').classList.add('bg-primary/30');
-    document.getElementById('global-shadow').checked = !!(style.shadow_color);
+// Toggle fill controls visibility
+function toggleFillControls(prefix, fillType) {
+    const solid = document.getElementById(`${prefix}-solid-controls`);
+    const gradient = document.getElementById(`${prefix}-gradient-controls`);
+    if (solid) solid.classList.toggle('hidden', fillType !== 'solid');
+    if (gradient) gradient.classList.toggle('hidden', fillType !== 'gradient');
+}
+
+// Toggle stroke controls visibility
+function toggleStrokeControls(prefix, enabled) {
+    const controls = document.getElementById(`${prefix}-stroke-controls`);
+    if (controls) controls.style.opacity = enabled ? '1' : '0.3';
+    if (controls) controls.style.pointerEvents = enabled ? 'auto' : 'none';
+}
+
+// Toggle shadow controls visibility
+function toggleShadowControls(prefix, enabled) {
+    const controls = document.getElementById(`${prefix}-shadow-controls`);
+    if (controls) controls.style.opacity = enabled ? '1' : '0.3';
+    if (controls) controls.style.pointerEvents = enabled ? 'auto' : 'none';
 }
 
 
@@ -1103,7 +1160,7 @@ function initStylingSystem() {
     initDeselectOnEscape();
 }
 
-// Main tab switching (Style / Presets)
+// Main tab switching (Style / Video / Presets)
 function initMainTabSwitching() {
     document.querySelectorAll('[data-main-tab]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1112,6 +1169,7 @@ function initMainTabSwitching() {
 
             const tab = btn.dataset.mainTab;
             document.getElementById('style-section').classList.toggle('hidden', tab !== 'style');
+            document.getElementById('video-section').classList.toggle('hidden', tab !== 'video');
             document.getElementById('presets-section').classList.toggle('hidden', tab !== 'presets');
         });
     });
@@ -1218,19 +1276,61 @@ function loadSpecialStyle() {
         style = subtitleTrack.global_style;
     }
 
-    // Update the special style controls
-    if (style) {
-        document.getElementById('special-font').value = style.font_family || 'Noto Sans Devanagari';
-        document.getElementById('special-font-size').value = style.font_size || 48;
-        document.getElementById('special-font-size-val').textContent = style.font_size || 48;
-        document.getElementById('special-text-color').value = style.text_color || '#FFFFFF';
-        document.getElementById('special-outline-color').value = style.outline_color || '#000000';
-        document.getElementById('special-outline-width').value = style.outline_width || 2;
-        document.getElementById('special-outline-w-val').textContent = style.outline_width || 2;
-        document.getElementById('special-bold').classList.toggle('bg-primary/30', style.bold);
-        document.getElementById('special-italic').classList.toggle('bg-primary/30', style.italic);
-        document.getElementById('special-shadow').checked = !!style.shadow_color;
-    }
+    if (!style) return;
+
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+    // §1 Font
+    setVal('special-font', style.font_family || 'Noto Sans Devanagari');
+    setVal('special-font-size', style.font_size || 48);
+    setText('special-font-size-val', style.font_size || 48);
+    setVal('special-font-weight', style.font_weight || 400);
+    setText('special-font-weight-val', style.font_weight || 400);
+    setVal('special-font-style', style.font_style || 'normal');
+    setVal('special-text-transform', style.text_transform || 'none');
+
+    // §2 Fill
+    setVal('special-fill-type', style.fill_type || 'solid');
+    setVal('special-text-color', style.text_color || '#FFFFFF');
+    setVal('special-grad-color1', style.gradient_color1 || '#FFFFFF');
+    setVal('special-grad-color2', style.gradient_color2 || '#FFD700');
+    setVal('special-grad-angle', style.gradient_angle || 0);
+    setText('special-grad-angle-val', `${style.gradient_angle || 0}°`);
+    setVal('special-grad-type', style.gradient_type || 'linear');
+    toggleFillControls('special', style.fill_type || 'solid');
+
+    // §3 Stroke
+    const strokeCheck = document.getElementById('special-stroke-enabled');
+    if (strokeCheck) strokeCheck.checked = style.stroke_enabled !== false;
+    setVal('special-outline-color', style.outline_color || '#000000');
+    setVal('special-outline-width', style.outline_width || 2);
+    setText('special-outline-w-val', style.outline_width || 2);
+    toggleStrokeControls('special', style.stroke_enabled !== false);
+
+    // §4 Shadow
+    const shadowCheck = document.getElementById('special-shadow-enabled');
+    if (shadowCheck) shadowCheck.checked = style.shadow_enabled !== false;
+    setVal('special-shadow-color', (style.shadow_color || '#000000').replace(/^#../, '#'));
+    setVal('special-shadow-blur', style.shadow_blur || 0);
+    setText('special-shadow-blur-val', style.shadow_blur || 0);
+    setVal('special-shadow-ox', style.shadow_offset_x ?? 2);
+    setText('special-shadow-ox-val', style.shadow_offset_x ?? 2);
+    setVal('special-shadow-oy', style.shadow_offset_y ?? 2);
+    setText('special-shadow-oy-val', style.shadow_offset_y ?? 2);
+    toggleShadowControls('special', style.shadow_enabled !== false);
+
+    // §5 Spacing
+    setVal('special-letter-spacing', style.letter_spacing || 0);
+    setText('special-letter-spacing-val', style.letter_spacing || 0);
+    setVal('special-word-spacing', style.word_spacing || 0);
+    setText('special-word-spacing-val', style.word_spacing || 0);
+    setVal('special-line-height', style.line_height || 1.2);
+    setText('special-line-height-val', style.line_height || 1.2);
+
+    // §6 Opacity
+    setVal('special-opacity', Math.round((style.text_opacity ?? 1) * 100));
+    setText('special-opacity-val', Math.round((style.text_opacity ?? 1) * 100));
 }
 
 // Get the first selected word object
@@ -1503,52 +1603,99 @@ function cleanupEmptyGroups() {
 
 // Initialize special style controls
 function initSpecialStyleControls() {
-    // Font family
+    // §1 Font
     document.getElementById('special-font').addEventListener('change', (e) => {
         updateSpecialStyle('font_family', e.target.value);
     });
-
-    // Font size
     document.getElementById('special-font-size').addEventListener('input', (e) => {
         document.getElementById('special-font-size-val').textContent = e.target.value;
         updateSpecialStyle('font_size', parseInt(e.target.value));
     });
+    document.getElementById('special-font-weight').addEventListener('input', (e) => {
+        document.getElementById('special-font-weight-val').textContent = e.target.value;
+        updateSpecialStyle('font_weight', parseInt(e.target.value));
+    });
+    document.getElementById('special-font-style').addEventListener('change', (e) => {
+        updateSpecialStyle('font_style', e.target.value);
+    });
+    document.getElementById('special-text-transform').addEventListener('change', (e) => {
+        updateSpecialStyle('text_transform', e.target.value);
+    });
 
-    // Text color
+    // §2 Fill
+    document.getElementById('special-fill-type').addEventListener('change', (e) => {
+        updateSpecialStyle('fill_type', e.target.value);
+        toggleFillControls('special', e.target.value);
+    });
     document.getElementById('special-text-color').addEventListener('input', (e) => {
         updateSpecialStyle('text_color', e.target.value);
     });
+    document.getElementById('special-grad-color1').addEventListener('input', (e) => {
+        updateSpecialStyle('gradient_color1', e.target.value);
+    });
+    document.getElementById('special-grad-color2').addEventListener('input', (e) => {
+        updateSpecialStyle('gradient_color2', e.target.value);
+    });
+    document.getElementById('special-grad-angle').addEventListener('input', (e) => {
+        document.getElementById('special-grad-angle-val').textContent = `${e.target.value}°`;
+        updateSpecialStyle('gradient_angle', parseInt(e.target.value));
+    });
+    document.getElementById('special-grad-type').addEventListener('change', (e) => {
+        updateSpecialStyle('gradient_type', e.target.value);
+    });
 
-    // Outline color
+    // §3 Stroke
+    document.getElementById('special-stroke-enabled').addEventListener('change', (e) => {
+        updateSpecialStyle('stroke_enabled', e.target.checked);
+        toggleStrokeControls('special', e.target.checked);
+    });
     document.getElementById('special-outline-color').addEventListener('input', (e) => {
         updateSpecialStyle('outline_color', e.target.value);
     });
-
-    // Outline width
     document.getElementById('special-outline-width').addEventListener('input', (e) => {
         document.getElementById('special-outline-w-val').textContent = e.target.value;
         updateSpecialStyle('outline_width', parseInt(e.target.value));
     });
 
-    // Bold
-    document.getElementById('special-bold').addEventListener('click', (e) => {
-        const btn = e.currentTarget;
-        const isBold = !btn.classList.contains('bg-primary/30');
-        btn.classList.toggle('bg-primary/30', isBold);
-        updateSpecialStyle('bold', isBold);
+    // §4 Shadow
+    document.getElementById('special-shadow-enabled').addEventListener('change', (e) => {
+        updateSpecialStyle('shadow_enabled', e.target.checked);
+        toggleShadowControls('special', e.target.checked);
+    });
+    document.getElementById('special-shadow-color').addEventListener('input', (e) => {
+        updateSpecialStyle('shadow_color', e.target.value);
+    });
+    document.getElementById('special-shadow-blur').addEventListener('input', (e) => {
+        document.getElementById('special-shadow-blur-val').textContent = e.target.value;
+        updateSpecialStyle('shadow_blur', parseInt(e.target.value));
+    });
+    document.getElementById('special-shadow-ox').addEventListener('input', (e) => {
+        document.getElementById('special-shadow-ox-val').textContent = e.target.value;
+        updateSpecialStyle('shadow_offset_x', parseInt(e.target.value));
+    });
+    document.getElementById('special-shadow-oy').addEventListener('input', (e) => {
+        document.getElementById('special-shadow-oy-val').textContent = e.target.value;
+        updateSpecialStyle('shadow_offset_y', parseInt(e.target.value));
     });
 
-    // Italic
-    document.getElementById('special-italic').addEventListener('click', (e) => {
-        const btn = e.currentTarget;
-        const isItalic = !btn.classList.contains('bg-primary/30');
-        btn.classList.toggle('bg-primary/30', isItalic);
-        updateSpecialStyle('italic', isItalic);
+    // §5 Spacing
+    document.getElementById('special-letter-spacing').addEventListener('input', (e) => {
+        document.getElementById('special-letter-spacing-val').textContent = e.target.value;
+        updateSpecialStyle('letter_spacing', parseFloat(e.target.value));
+    });
+    document.getElementById('special-word-spacing').addEventListener('input', (e) => {
+        document.getElementById('special-word-spacing-val').textContent = e.target.value;
+        updateSpecialStyle('word_spacing', parseFloat(e.target.value));
+    });
+    document.getElementById('special-line-height').addEventListener('input', (e) => {
+        document.getElementById('special-line-height-val').textContent = e.target.value;
+        updateSpecialStyle('line_height', parseFloat(e.target.value));
     });
 
-    // Shadow
-    document.getElementById('special-shadow').addEventListener('change', (e) => {
-        updateSpecialStyle('shadow_color', e.target.checked ? '#80000000' : '');
+    // §6 Opacity
+    document.getElementById('special-opacity').addEventListener('input', (e) => {
+        document.getElementById('special-opacity-val').textContent = e.target.value;
+        updateSpecialStyle('text_opacity', parseInt(e.target.value) / 100);
     });
 }
 
@@ -1598,90 +1745,117 @@ function updateSpecialStyle(property, value) {
     autoSave();
 }
 
-// Initialize global style controls (renamed from old IDs)
+// Initialize global style controls
 function initGlobalStyleControls() {
-    // Font family
+    // §1 Font
     document.getElementById('global-font').addEventListener('change', (e) => {
         updateGlobalStyle('font_family', e.target.value);
     });
-
-    // Font size
     document.getElementById('global-font-size').addEventListener('input', (e) => {
         document.getElementById('global-font-size-val').textContent = e.target.value;
         updateGlobalStyle('font_size', parseInt(e.target.value));
     });
+    document.getElementById('global-font-weight').addEventListener('input', (e) => {
+        document.getElementById('global-font-weight-val').textContent = e.target.value;
+        updateGlobalStyle('font_weight', parseInt(e.target.value));
+    });
+    document.getElementById('global-font-style').addEventListener('change', (e) => {
+        updateGlobalStyle('font_style', e.target.value);
+    });
+    document.getElementById('global-text-transform').addEventListener('change', (e) => {
+        updateGlobalStyle('text_transform', e.target.value);
+    });
 
-    // Text color
+    // §2 Fill
+    document.getElementById('global-fill-type').addEventListener('change', (e) => {
+        updateGlobalStyle('fill_type', e.target.value);
+        toggleFillControls('global', e.target.value);
+    });
     document.getElementById('global-text-color').addEventListener('input', (e) => {
         updateGlobalStyle('text_color', e.target.value);
     });
+    document.getElementById('global-grad-color1').addEventListener('input', (e) => {
+        updateGlobalStyle('gradient_color1', e.target.value);
+    });
+    document.getElementById('global-grad-color2').addEventListener('input', (e) => {
+        updateGlobalStyle('gradient_color2', e.target.value);
+    });
+    document.getElementById('global-grad-angle').addEventListener('input', (e) => {
+        document.getElementById('global-grad-angle-val').textContent = `${e.target.value}°`;
+        updateGlobalStyle('gradient_angle', parseInt(e.target.value));
+    });
+    document.getElementById('global-grad-type').addEventListener('change', (e) => {
+        updateGlobalStyle('gradient_type', e.target.value);
+    });
 
-    // Outline color
+    // §3 Stroke
+    document.getElementById('global-stroke-enabled').addEventListener('change', (e) => {
+        updateGlobalStyle('stroke_enabled', e.target.checked);
+        toggleStrokeControls('global', e.target.checked);
+    });
     document.getElementById('global-outline-color').addEventListener('input', (e) => {
         updateGlobalStyle('outline_color', e.target.value);
     });
-
-    // Outline width
     document.getElementById('global-outline-width').addEventListener('input', (e) => {
         document.getElementById('global-outline-w-val').textContent = e.target.value;
         updateGlobalStyle('outline_width', parseInt(e.target.value));
     });
 
-    // Bold
-    document.getElementById('global-bold').addEventListener('click', (e) => {
-        const btn = e.currentTarget;
-        const isBold = !btn.classList.contains('bg-primary/30');
-        btn.classList.toggle('bg-primary/30', isBold);
-        updateGlobalStyle('bold', isBold);
+    // §4 Shadow
+    document.getElementById('global-shadow-enabled').addEventListener('change', (e) => {
+        updateGlobalStyle('shadow_enabled', e.target.checked);
+        toggleShadowControls('global', e.target.checked);
+    });
+    document.getElementById('global-shadow-color').addEventListener('input', (e) => {
+        updateGlobalStyle('shadow_color', e.target.value);
+    });
+    document.getElementById('global-shadow-blur').addEventListener('input', (e) => {
+        document.getElementById('global-shadow-blur-val').textContent = e.target.value;
+        updateGlobalStyle('shadow_blur', parseInt(e.target.value));
+    });
+    document.getElementById('global-shadow-ox').addEventListener('input', (e) => {
+        document.getElementById('global-shadow-ox-val').textContent = e.target.value;
+        updateGlobalStyle('shadow_offset_x', parseInt(e.target.value));
+    });
+    document.getElementById('global-shadow-oy').addEventListener('input', (e) => {
+        document.getElementById('global-shadow-oy-val').textContent = e.target.value;
+        updateGlobalStyle('shadow_offset_y', parseInt(e.target.value));
     });
 
-    // Italic
-    document.getElementById('global-italic').addEventListener('click', (e) => {
-        const btn = e.currentTarget;
-        const isItalic = !btn.classList.contains('bg-primary/30');
-        btn.classList.toggle('bg-primary/30', isItalic);
-        updateGlobalStyle('italic', isItalic);
+    // §5 Spacing
+    document.getElementById('global-letter-spacing').addEventListener('input', (e) => {
+        document.getElementById('global-letter-spacing-val').textContent = e.target.value;
+        updateGlobalStyle('letter_spacing', parseFloat(e.target.value));
+    });
+    document.getElementById('global-word-spacing').addEventListener('input', (e) => {
+        document.getElementById('global-word-spacing-val').textContent = e.target.value;
+        updateGlobalStyle('word_spacing', parseFloat(e.target.value));
+    });
+    document.getElementById('global-line-height').addEventListener('input', (e) => {
+        document.getElementById('global-line-height-val').textContent = e.target.value;
+        updateGlobalStyle('line_height', parseFloat(e.target.value));
     });
 
-    // Y Position
-    document.getElementById('global-pos-y').addEventListener('input', (e) => {
-        document.getElementById('global-pos-y-val').textContent = `${e.target.value}%`;
-        if (subtitleTrack) {
-            subtitleTrack.position_y = parseInt(e.target.value) / 100;
-            preview?.setTrack(subtitleTrack);
-            autoSave();
-        }
+    // §6 Opacity
+    document.getElementById('global-opacity').addEventListener('input', (e) => {
+        document.getElementById('global-opacity-val').textContent = e.target.value;
+        updateGlobalStyle('text_opacity', parseInt(e.target.value) / 100);
     });
 
-    // Subtitle rotation
-    document.getElementById('global-sub-rotation').addEventListener('input', (e) => {
-        document.getElementById('global-sub-rot-val').textContent = `${e.target.value}°`;
-        if (subtitleTrack) {
-            subtitleTrack.global_style.rotation = parseInt(e.target.value);
-            preview?.setTrack(subtitleTrack);
-            autoSave();
-        }
-    });
-
-    // Video rotation
+    // Video tab controls
     document.getElementById('global-vid-rotation').addEventListener('input', (e) => {
         document.getElementById('global-vid-rot-val').textContent = `${e.target.value}°`;
         if (subtitleTrack) {
             subtitleTrack.video_rotation = parseInt(e.target.value);
             const video = document.getElementById('video-player');
-            if (video) {
-                video.style.transform = `rotate(${e.target.value}deg)`;
-            }
+            if (video) video.style.transform = `rotate(${e.target.value}deg)`;
             autoSave();
         }
     });
-
-    // Words per line
     document.getElementById('global-wpl').addEventListener('input', (e) => {
         document.getElementById('global-wpl-val').textContent = e.target.value;
         if (subtitleTrack) {
             subtitleTrack.words_per_line = parseInt(e.target.value);
-            // Re-segment
             const allWords = [];
             for (const seg of subtitleTrack.segments) {
                 allWords.push(...seg.words);
@@ -1702,9 +1876,21 @@ function initGlobalStyleControls() {
         }
     });
 
-    // Shadow
-    document.getElementById('global-shadow').addEventListener('change', (e) => {
-        updateGlobalStyle('shadow_color', e.target.checked ? '#80000000' : '');
+    // Animation controls
+    document.getElementById('global-animation').addEventListener('change', (e) => {
+        if (subtitleTrack) {
+            subtitleTrack.animation_type = e.target.value;
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+        }
+    });
+    document.getElementById('global-anim-duration').addEventListener('input', (e) => {
+        document.getElementById('global-anim-dur-val').textContent = `${e.target.value}s`;
+        if (subtitleTrack) {
+            subtitleTrack.animation_duration = parseFloat(e.target.value);
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+        }
     });
 }
 
