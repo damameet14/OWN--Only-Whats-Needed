@@ -115,8 +115,9 @@ class SubtitleTimeline {
                             this.selectedIndex = { track: clickedTrack, index: i };
                             if (this.onSelect) this.onSelect({ track: clickedTrack, index: i });
                             if (this.onSeek) this.onSeek(startTime);
+                            this.currentTime = startTime; // Immediately update timeline visual playhead too
                             this.draw();
-                            return; // Clicked segment, don't drag playhead
+                            return true; // Clicked segment, don't drag playhead
                         }
                     }
                 }
@@ -131,13 +132,16 @@ class SubtitleTimeline {
             // Scrubbing playhead (if not shift-dragging)
             if (!isDraggingSelection) {
                 const seekTime = Math.max(0, Math.min((x - headerW + this.scrollOffset) / pxPerSec, this.duration));
+                this.currentTime = seekTime;
+                this.draw(); // Instantly update playhead visually
                 const now = Date.now();
-                if (this.onSeek && (forceSeek || !this.lastSeek || now - this.lastSeek > 100)) {
+                if (this.onSeek && (forceSeek || !this.lastSeek || now - this.lastSeek > 50)) {
                     this.lastSeek = now;
                     this.onSeek(seekTime);
                 }
                 this.selectionRange = null; // Clear selection area when seeking normally
             }
+            return false;
         };
 
         this.canvas.addEventListener('mousedown', (e) => {
@@ -145,20 +149,32 @@ class SubtitleTimeline {
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
+            const pxPerSec = this.getPixelsPerSecond();
+            const headerW = 85;
+            const playheadX = headerW + this.currentTime * pxPerSec - this.scrollOffset;
+
+            // Prioritize scrubbing the playhead if clicked very close to it
+            if (Math.abs(x - playheadX) < 15) {
+                isDraggingPlayhead = true;
+                handleInteraction(e, false, true); // pass false for isDown to prevent segment selection
+                return;
+            }
+            
             if (y >= 24) { // Below ruler
                 if (e.shiftKey) {
                     // Start selection range
-                    const pxPerSec = this.getPixelsPerSecond();
-                    const headerW = 85;
                     const time = Math.max(0, Math.min((x - headerW + this.scrollOffset) / pxPerSec, this.duration));
                     isDraggingSelection = true;
                     selectionStartPointer = time;
                     this.selectionRange = { start: time, end: time };
                     this.draw();
                 } else {
-                    isDraggingPlayhead = true;
-                    handleInteraction(e, true, true);
+                    const clickedSegment = handleInteraction(e, true, true);
+                    isDraggingPlayhead = !clickedSegment; // Only drag playhead if we clicked empty space
                 }
+            } else { // Clicked on the ruler
+                isDraggingPlayhead = true;
+                handleInteraction(e, false, true);
             }
         });
 
@@ -392,29 +408,7 @@ class SubtitleTimeline {
                 ctx.lineWidth = isSelected ? 2 : 1;
                 ctx.strokeRect(x, subTrackY + 2, sw, trackH - 4);
 
-                // Draw special word highlights
-                if (seg.words && seg.words.length > 0) {
-                    let wordX = x;
-                    const totalDuration = endTime - startTime;
 
-                    for (const word of seg.words) {
-                        const wordDuration = word.end_time - word.start_time;
-                        const wordWidth = (wordDuration / totalDuration) * sw;
-
-                        if (word.is_special) {
-                            // Highlight special words with yellow
-                            ctx.fillStyle = 'rgba(255, 215, 0, 0.4)';
-                            ctx.fillRect(wordX, subTrackY + 2, wordWidth, trackH - 4);
-
-                            // Add a border for special words
-                            ctx.strokeStyle = '#ffd700';
-                            ctx.lineWidth = 1;
-                            ctx.strokeRect(wordX, subTrackY + 2, wordWidth, trackH - 4);
-                        }
-
-                        wordX += wordWidth;
-                    }
-                }
 
                 // Segment text (if wide enough)
                 if (sw > 40) {

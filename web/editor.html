@@ -71,13 +71,13 @@
         </div>
 
         <!-- Center — Video Preview -->
-        <div class="flex-1 flex flex-col items-center justify-center bg-bg-surface relative">
-            <div class="relative" id="preview-container">
-                <video id="video-player" class="max-w-full max-h-[60vh] bg-black rounded-lg"></video>
-                <canvas id="subtitle-canvas" class="absolute top-0 left-0 w-full h-full cursor-pointer"></canvas>
+        <div class="flex-1 flex flex-col items-center justify-center bg-bg-surface relative min-h-0 p-4">
+            <div class="relative flex-1 min-h-0 w-full flex items-center justify-center" id="preview-container">
+                <video id="video-player" class="max-w-full max-h-full bg-black rounded-lg overflow-hidden"></video>
+                <canvas id="subtitle-canvas" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-lg"></canvas>
             </div>
             <!-- Playback Controls -->
-            <div class="flex items-center gap-4 mt-4 px-4 w-full max-w-lg">
+            <div class="flex flex-shrink-0 items-center gap-4 mt-4 px-4 w-full max-w-lg">
                 <button class="text-white hover:text-primary transition-colors" id="btn-play">
                     <span class="material-symbols-outlined text-2xl">play_arrow</span>
                 </button>
