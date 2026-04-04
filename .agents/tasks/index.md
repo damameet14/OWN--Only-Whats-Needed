@@ -2,6 +2,7 @@
 
 ## Active Tasks
 - task-style-engine.md — Complete — Owner: agent — Priority: High
+- task-fix-export-special-styles.md — Complete — Owner: agent — Priority: High
 
 ## Not Started
 

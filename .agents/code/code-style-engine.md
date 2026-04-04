@@ -51,9 +51,14 @@ Comprehensive text styling system supporting 6 categories: Font, Fill, Stroke, S
 - `.style-label`, `.style-select`, `.style-range`, `.style-color`: form control styles
 
 ### core/exporter.py — Video Export Rendering
-- Uses cv2/numpy for gradient fill compositing with text masks
-- `ImageFilter.GaussianBlur` for shadow blur
-- Supports all new style properties
+- `_get_word_style(word, seg_style, track)`: resolves effective style per word (style_override → group style → segment style)
+- `_paint_subtitle()`: dispatcher — checks for special words and routes to word-by-word or uniform rendering
+- `_paint_subtitle_word_by_word()`: renders each word individually with its own style (font, fill, stroke, shadow, gradient) USING SKIA
+- `_paint_subtitle_uniform()`: renders entire segment as one text block USING SKIA
+- Fully utilizes `skia-python` for native gradients (`GradientShader.MakeLinear`), native shadows (`ImageFilters.DropShadow`), and strokes.
+- Solves text clipping natively by leveraging `skia.Font.measureText` properties like `metrics.fAscent` for bounds.
 
 ## Changelog
+- 2026-04-05: Skia-Python Rendering Engine replacement — migrated Pillow to Skia to fix Devanagari text bounds overlaps and ensure exactly mapped text sizes.
+- 2026-04-04: Fixed export — added per-word rendering for special word styles, fixed text trimming
 - 2025-04-02: Initial creation — full style engine implementation across all files
