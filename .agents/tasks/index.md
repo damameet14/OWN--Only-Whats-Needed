@@ -3,6 +3,7 @@
 ## Active Tasks
 - task-style-engine.md — Complete — Owner: agent — Priority: High
 - task-fix-export-special-styles.md — Complete — Owner: agent — Priority: High
+- [task-special-group-highlighting.md](file:///c:/Users/damam/OneDrive/Desktop/stt_vosk/.agents/tasks/task-special-group-highlighting.md) — Completed — Owner: agent — Priority: High
 
 ## Not Started
 

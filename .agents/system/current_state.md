@@ -1,10 +1,10 @@
 # Current System State
 
 ## Last Updated
-2026-03-20
+2026-04-05
 
 ## Architecture Summary
-OWN is a hybrid offline video captioning application. A FastAPI backend serves a REST API and static web frontend on `localhost`. Core transcription (Vosk + faster-whisper) and export (FFmpeg + Pillow) engines run as async generators on the server. A desktop tray app (pystray) manages the server lifecycle. SQLite stores project metadata, user profiles, and model registry. The web editor provides real-time subtitle preview via canvas overlay, style controls, a timeline widget with multi-track non-linear editing (NLE) capabilities using an internal Edit Decision List (EDL).
+OWN is a hybrid offline video captioning application. A FastAPI backend serves a REST API and static web frontend on `localhost`. Core transcription (Vosk + faster-whisper) and export (FFmpeg + Skia-Python) engines run as async generators on the server. A desktop tray app (pystray) manages the server lifecycle. SQLite stores project metadata, user profiles, and model registry. The web editor provides real-time subtitle preview via canvas overlay, style controls, and a timeline widget with multi-track non-linear editing (NLE) capabilities. It features deterministic group-specific highlighting in the UI (Timeline and Segments) to assist users in identifying themed word groups during editing.
 
 ## System Entry Points
 - API: `server/app.py` — FastAPI on `http://localhost:80` (or `:8000` non-admin)

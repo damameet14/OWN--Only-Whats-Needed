@@ -2000,6 +2000,24 @@ function initDeselectOnEscape() {
     });
 }
 
+/**
+ * Generates a deterministic HSL color based on a group ID.
+ * @param {string} groupId The group UUID
+ * @param {number} alpha Opacity (0-1)
+ * @returns {string} HSLA color string
+ */
+function getGroupColor(groupId, alpha = 0.4) {
+    if (!groupId) return `rgba(255, 215, 0, ${alpha})`; // Default yellow for special words without group
+    
+    let hash = 0;
+    for (let i = 0; i < groupId.length; i++) {
+        hash = groupId.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    const hue = Math.abs(hash % 360);
+    return `hsla(${hue}, 80%, 50%, ${alpha})`;
+}
+
 // Override populateSegments to support word selection
 const originalPopulateSegments = populateSegments;
 populateSegments = function(segments) {
@@ -2017,8 +2035,17 @@ populateSegments = function(segments) {
         // Build word HTML with special highlighting
         const wordsHtml = seg.words?.map((word, wordIdx) => {
             const isSpecial = word.is_special === true;
-            const specialClass = isSpecial ? 'bg-yellow-500/20 border border-yellow-500/50' : '';
-            return `<span class="word-item px-1 rounded cursor-pointer hover:bg-white/10 transition-colors ${specialClass}" data-segment-idx="${segIdx}" data-word-idx="${wordIdx}">${escapeHtml(word.word)}</span>`;
+            let styleAttr = '';
+            let specialClass = '';
+            
+            if (isSpecial) {
+                const bgColor = getGroupColor(word.group_id, 0.2);
+                const borderColor = getGroupColor(word.group_id, 0.5);
+                styleAttr = `style="background-color: ${bgColor}; border: 1px solid ${borderColor};"`;
+                specialClass = 'is-special'; // For targeted UI updates if needed
+            }
+            
+            return `<span class="word-item px-1 rounded cursor-pointer hover:bg-white/10 transition-colors ${specialClass}" ${styleAttr} data-segment-idx="${segIdx}" data-word-idx="${wordIdx}">${escapeHtml(word.word)}</span>`;
         }).join(' ') || '';
 
         return `

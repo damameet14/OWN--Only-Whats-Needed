@@ -58,7 +58,11 @@ Comprehensive text styling system supporting 6 categories: Font, Fill, Stroke, S
 - Fully utilizes `skia-python` for native gradients (`GradientShader.MakeLinear`), native shadows (`ImageFilters.DropShadow`), and strokes.
 - Solves text clipping natively by leveraging `skia.Font.measureText` properties like `metrics.fAscent` for bounds.
 
+## Web Editor Enhancements
+- **UI-Only Group Highlighting**: Special groups are assigned deterministic colors in the **Timeline** and **Segments** panel using `getGroupColor(groupId, alpha)`. This is for editor-side identification only and does not affect the final export or preview.
+
 ## Changelog
+- 2026-04-05: Added deterministic UI-only group highlighting to Timeline and Segments section for easier word group identification.
 - 2026-04-05: Skia-Python Rendering Engine replacement — migrated Pillow to Skia to fix Devanagari text bounds overlaps and ensure exactly mapped text sizes.
 - 2026-04-04: Fixed export — added per-word rendering for special word styles, fixed text trimming
 - 2025-04-02: Initial creation — full style engine implementation across all files
