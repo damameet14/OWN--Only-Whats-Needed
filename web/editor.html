@@ -527,7 +527,17 @@
                 <div class="flex-1 overflow-y-auto p-4 space-y-5">
                     <div>
                         <label class="style-label">Video Rotation: <span id="global-vid-rot-val">0°</span></label>
-                        <input type="range" id="global-vid-rotation" min="-180" max="180" value="0" class="style-range"/>
+                        <div class="flex items-center gap-2">
+                            <input type="range" id="global-vid-rotation" min="-180" max="180" value="0" class="style-range flex-1"/>
+                            <input type="number" id="global-vid-rotation-input" min="-180" max="180" value="0" class="w-16 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm text-center"/>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="style-label">Subtitle Rotation: <span id="global-sub-rot-val">0°</span></label>
+                        <div class="flex items-center gap-2">
+                            <input type="range" id="global-sub-rotation" min="-180" max="180" value="0" class="style-range flex-1"/>
+                            <input type="number" id="global-sub-rotation-input" min="-180" max="180" value="0" class="w-16 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm text-center"/>
+                        </div>
                     </div>
                     <div>
                         <label class="style-label">Words Per Line: <span id="global-wpl-val">4</span></label>

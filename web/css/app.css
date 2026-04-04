@@ -182,6 +182,8 @@ select option {
     border-bottom: 2px solid transparent;
     transition: all 0.2s ease;
     cursor: pointer;
+    position: relative;
+    z-index: 1;
 }
 .tab-btn:hover {
     color: var(--text-primary);
@@ -200,6 +202,8 @@ select option {
     border-bottom: 2px solid transparent;
     transition: all 0.2s ease;
     cursor: pointer;
+    position: relative;
+    z-index: 1;
 }
 .sub-tab-btn:hover {
     color: var(--text-primary);

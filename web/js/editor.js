@@ -739,8 +739,12 @@ function applyTrackToControls(track) {
     // Video section
     setVal('global-vid-rotation', track.video_rotation || 0);
     setText('global-vid-rot-val', `${track.video_rotation || 0}°`);
+    setVal('global-vid-rotation-input', track.video_rotation || 0);
     const video = document.getElementById('video-player');
     if (video) video.style.transform = `rotate(${track.video_rotation || 0}deg)`;
+    setVal('global-sub-rotation', style.rotation || 0);
+    setText('global-sub-rot-val', `${style.rotation || 0}°`);
+    setVal('global-sub-rotation-input', style.rotation || 0);
     setVal('global-wpl', track.words_per_line || 4);
     setText('global-wpl-val', track.words_per_line || 4);
 
@@ -1152,6 +1156,7 @@ let currentGroupId = null;  // Currently selected group
 
 // Initialize the new styling system
 function initStylingSystem() {
+    initTabSwitching(); // Left panel tabs (Segments / Full Text)
     initMainTabSwitching();
     initSubTabSwitching();
     initContextMenu();
@@ -1490,6 +1495,9 @@ function markWordsAsSpecial() {
         timeline.draw();
     }
 
+    // Update preview to reflect special words
+    preview?.setTrack(subtitleTrack);
+
     updateWordSelectionUI();
     autoSave();
     showToast('Marked as Special');
@@ -1517,6 +1525,9 @@ function unmarkWords() {
         timeline.segments.text = subtitleTrack.segments;
         timeline.draw();
     }
+
+    // Update preview to reflect changes
+    preview?.setTrack(subtitleTrack);
 
     updateWordSelectionUI();
     updateSpecialsPanel();
@@ -1549,6 +1560,9 @@ function createGroup() {
         timeline.draw();
     }
 
+    // Update preview to reflect special words
+    preview?.setTrack(subtitleTrack);
+
     currentGroupId = groupId;
     updateWordSelectionUI();
     autoSave();
@@ -1577,6 +1591,9 @@ function removeFromGroup() {
         timeline.segments.text = subtitleTrack.segments;
         timeline.draw();
     }
+
+    // Update preview to reflect changes
+    preview?.setTrack(subtitleTrack);
 
     updateWordSelectionUI();
     updateSpecialsPanel();
@@ -1844,13 +1861,46 @@ function initGlobalStyleControls() {
 
     // Video tab controls
     document.getElementById('global-vid-rotation').addEventListener('input', (e) => {
-        document.getElementById('global-vid-rot-val').textContent = `${e.target.value}°`;
+        const value = parseInt(e.target.value);
+        document.getElementById('global-vid-rot-val').textContent = `${value}°`;
+        document.getElementById('global-vid-rotation-input').value = value;
         if (subtitleTrack) {
-            subtitleTrack.video_rotation = parseInt(e.target.value);
+            subtitleTrack.video_rotation = value;
             const video = document.getElementById('video-player');
-            if (video) video.style.transform = `rotate(${e.target.value}deg)`;
+            if (video) video.style.transform = `rotate(${value}deg)`;
             autoSave();
         }
+    });
+    document.getElementById('global-vid-rotation-input').addEventListener('input', (e) => {
+        let value = parseInt(e.target.value);
+        // Validate and clamp value
+        if (isNaN(value)) value = 0;
+        value = Math.max(-180, Math.min(180, value));
+        e.target.value = value;
+        document.getElementById('global-vid-rotation').value = value;
+        document.getElementById('global-vid-rot-val').textContent = `${value}°`;
+        if (subtitleTrack) {
+            subtitleTrack.video_rotation = value;
+            const video = document.getElementById('video-player');
+            if (video) video.style.transform = `rotate(${value}deg)`;
+            autoSave();
+        }
+    });
+    document.getElementById('global-sub-rotation').addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        document.getElementById('global-sub-rot-val').textContent = `${value}°`;
+        document.getElementById('global-sub-rotation-input').value = value;
+        updateGlobalStyle('rotation', value);
+    });
+    document.getElementById('global-sub-rotation-input').addEventListener('input', (e) => {
+        let value = parseInt(e.target.value);
+        // Validate and clamp value
+        if (isNaN(value)) value = 0;
+        value = Math.max(-180, Math.min(180, value));
+        e.target.value = value;
+        document.getElementById('global-sub-rotation').value = value;
+        document.getElementById('global-sub-rot-val').textContent = `${value}°`;
+        updateGlobalStyle('rotation', value);
     });
     document.getElementById('global-wpl').addEventListener('input', (e) => {
         document.getElementById('global-wpl-val').textContent = e.target.value;
@@ -1898,7 +1948,20 @@ function initGlobalStyleControls() {
 function updateGlobalStyle(property, value) {
     if (!subtitleTrack) return;
 
-    subtitleTrack.global_style[property] = value;
+    // Update global style
+    if (subtitleTrack.global_style) {
+        subtitleTrack.global_style[property] = value;
+    }
+
+    // Update all segment styles
+    if (subtitleTrack.segments) {
+        for (const seg of subtitleTrack.segments) {
+            if (seg.style) {
+                seg.style[property] = value;
+            }
+        }
+    }
+
     preview?.setTrack(subtitleTrack);
     autoSave();
 }
