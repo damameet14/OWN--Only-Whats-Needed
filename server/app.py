@@ -22,7 +22,7 @@ from server.config import (
     PRESETS_PATH, INPUT_EXTENSIONS, MAX_UPLOAD_SIZE, ensure_directories,
 )
 from server import database as db
-from server.model_manager import get_available_models, download_vosk_model, download_whisper_model, delete_model
+from server.model_manager import get_available_models, download_whisper_model, delete_model
 from models.subtitle import SubtitleTrack, WordTiming
 from core.video_utils import get_video_info
 from core.srt_utils import generate_srt
@@ -214,11 +214,11 @@ async def delete_project(project_id: int):
     return {"deleted": True}
 
 
-# ── Transcription ─────────────────────────────────────────────────────────────
+# ── Transcription (Whisper only) ──────────────────────────────────────────────
 
 @app.post("/api/projects/{project_id}/transcribe")
 async def start_transcription(project_id: int, body: dict = Body(default=None)):
-    """Start transcription for a project. Returns a task_id for progress tracking."""
+    """Start Whisper transcription for a project. Returns a task_id for progress tracking."""
     logger.info(f"[API] POST /api/projects/{project_id}/transcribe - body={body}")
     project = db.get_project(project_id)
     if not project:
@@ -226,21 +226,16 @@ async def start_transcription(project_id: int, body: dict = Body(default=None)):
         raise HTTPException(404, "Project not found")
 
     body = body or {}
-    engine = body.get("engine", "vosk")  # "vosk" or "whisper"
     model = body.get("model")  # Optional specific model name
     language = body.get("language", project.get("language", "hi"))
-    words_per_line = body.get("words_per_line", 4)  # Default 4 words per line
+    words_per_line = body.get("words_per_line", 4)
 
-    logger.info(f"[TRANSCRIBE] project={project_id}, engine={engine!r}, model={model!r}, language={language!r}, words_per_line={words_per_line!r}, body={body}")
+    logger.info(f"[TRANSCRIBE] project={project_id}, model={model!r}, language={language!r}, words_per_line={words_per_line!r}")
 
     # Validate model is installed if specified
     if model:
         models = db.list_models()
-        model_found = False
-        for m in models:
-            if m["name"] == model:
-                model_found = True
-                break
+        model_found = any(m["name"] == model for m in models)
         if not model_found:
             logger.error(f"[TRANSCRIBE] Model '{model}' not installed")
             raise HTTPException(400, f"Model '{model}' not installed. Please download it first.")
@@ -249,92 +244,65 @@ async def start_transcription(project_id: int, body: dict = Body(default=None)):
     _tasks[task_id] = {"percent": 0, "message": "Starting...", "result": None}
     _task_events[task_id] = asyncio.Event()
 
-    # Run transcription in background
-    asyncio.create_task(_run_transcription(task_id, project, engine, language, model, words_per_line))
+    asyncio.create_task(_run_transcription(task_id, project, language, model, words_per_line))
 
     db.update_project(project_id, status="transcribing")
     logger.info(f"[TRANSCRIBE] Started task {task_id} for project {project_id}")
     return {"task_id": task_id}
 
 
-async def _run_transcription(task_id: str, project: dict, engine: str, language: str, model_name: str = None, words_per_line: int = 4):
-    """Background task for transcription."""
-    logger.info(f"[_run_transcription] START engine={engine!r}, language={language!r}, model_name={model_name!r}, words_per_line={words_per_line!r}")
-    logger.info(f"[_run_transcription] project keys: {list(project.keys())}")
+async def _run_transcription(task_id: str, project: dict, language: str, model_name: str = None, words_per_line: int = 4):
+    """Background Whisper transcription task."""
+    logger.info(f"[_run_transcription] START language={language!r}, model_name={model_name!r}, words_per_line={words_per_line!r}")
     try:
         video_path = project["video_path"]
         logger.info(f"[_run_transcription] video_path={video_path!r}, exists={os.path.exists(video_path)}")
 
-        if engine == "whisper":
-            logger.info(f"[_run_transcription] Importing transcribe_whisper_chunked...")
-            from core.whisper_chunked import transcribe_whisper_chunked
+        from core.whisper_chunked import transcribe_whisper_chunked
 
-            # Find the whisper model to use
-            model_path = None
-            model_size = "large-v3-turbo"
-            models = db.list_models()
-            logger.info(f"[_run_transcription] installed models: {[m['name'] for m in models]}")
+        # Find the whisper model to use
+        model_path = None
+        model_size = "large-v3-turbo"
+        models = db.list_models()
+        logger.info(f"[_run_transcription] installed models: {[m['name'] for m in models]}")
 
-            if model_name:
-                # User specified a model — find it by name
-                for m in models:
-                    if m["name"] == model_name and m["engine"] == "whisper":
-                        model_path = m["path"]
-                        model_size = "large-v3-turbo" if "turbo" in m["name"] else "large-v3"
-                        break
-
-            if model_path is None:
-                # Fallback: pick any installed whisper model
-                for m in models:
-                    if m["engine"] == "whisper":
-                        model_path = m["path"]
-                        model_size = "large-v3-turbo" if "turbo" in m["name"] else "large-v3"
-                        break
-
-            if model_path is None:
-                # No model installed at all — use default model_size (will auto-download)
-                model_size = "large-v3-turbo"
-
-            # Validate that the model directory has CTranslate2 format (model.bin)
-            # If it has model.safetensors instead, it was downloaded from the wrong repo
-            if model_path and not os.path.isfile(os.path.join(model_path, "model.bin")):
-                logger.info(f"[_run_transcription] WARNING: model_path {model_path!r} has no model.bin (wrong format). Falling back to model_size={model_size!r}")
-                model_path = None  # Will use model_size string for auto-download
-
-            logger.info(f"[_run_transcription] WHISPER model_path={model_path!r}, model_size={model_size!r}")
-
-            logger.info(f"[_run_transcription] Creating transcribe_whisper_chunked generator...")
-            gen = transcribe_whisper_chunked(
-                video_path,
-                model_path=model_path,
-                model_size=model_size,
-                language=language,
-            )
-            logger.info(f"[_run_transcription] Generator created, starting iteration...")
-        else:
-            from core.transcriber import transcribe_vosk
-
-            # Find the vosk model path
-            model_path = None
-            models = db.list_models()
+        if model_name:
             for m in models:
-                if m["engine"] == "vosk" and m["language"] == language:
+                if m["name"] == model_name and m["engine"] == "whisper":
                     model_path = m["path"]
+                    model_size = "large-v3-turbo" if "turbo" in m["name"] else "large-v3"
                     break
-                elif m["engine"] == "vosk" and m.get("is_default"):
+
+        if model_path is None:
+            # Fallback: pick any installed whisper model
+            for m in models:
+                if m["engine"] == "whisper":
                     model_path = m["path"]
+                    model_size = "large-v3-turbo" if "turbo" in m["name"] else "large-v3"
+                    break
 
-            if model_path is None:
-                # Fallback to default path
-                model_path = os.path.join(PROJECT_ROOT, "vosk-model-hi-0.22")
+        if model_path is None:
+            model_size = "large-v3-turbo"
 
-            gen = transcribe_vosk(video_path, model_path=model_path)
+        # Validate CTranslate2 format (model.bin)
+        if model_path and not os.path.isfile(os.path.join(model_path, "model.bin")):
+            logger.info(f"[_run_transcription] WARNING: model_path {model_path!r} has no model.bin. Falling back.")
+            model_path = None
+
+        logger.info(f"[_run_transcription] WHISPER model_path={model_path!r}, model_size={model_size!r}")
+
+        gen = transcribe_whisper_chunked(
+            video_path,
+            model_path=model_path,
+            model_size=model_size,
+            language=language,
+        )
 
         words = None
         iteration_count = 0
         async for progress, message, result in gen:
             iteration_count += 1
-            logger.info(f"[_run_transcription] Iteration {iteration_count}: progress={progress}%, message={message!r}, result_is_none={result is None}")
+            logger.info(f"[_run_transcription] Iteration {iteration_count}: progress={progress}%, message={message!r}")
             _tasks[task_id] = {"percent": progress, "message": message, "result": None}
             _task_events[task_id].set()
             _task_events[task_id] = asyncio.Event()
@@ -342,10 +310,9 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
                 words = result
                 logger.info(f"[_run_transcription] Got result with {len(words)} words")
 
-        logger.info(f"[_run_transcription] Generator iteration complete. Total iterations: {iteration_count}")
+        logger.info(f"[_run_transcription] Generator done. Total iterations: {iteration_count}")
 
         if words:
-            # Build subtitle track
             track = SubtitleTrack()
             track.words_per_line = words_per_line
             track.rebuild_segments(words)
@@ -357,10 +324,8 @@ async def _run_transcription(task_id: str, project: dict, engine: str, language:
                 status="completed",
             )
 
-            # Small delay to ensure DB commit is visible
             await asyncio.sleep(0.1)
 
-            # Set final state BEFORE triggering event
             _tasks[task_id] = {
                 "percent": 100,
                 "message": "Transcription complete!",
@@ -421,14 +386,12 @@ async def _run_export(task_id: str, project: dict, format_key: str):
         fmt_info = OUTPUT_FORMATS.get(format_key, OUTPUT_FORMATS["MP4 (H.264)"])
         ext = fmt_info["ext"]
 
-        # Build subtitle track from stored data
         subtitle_data = project["subtitle_data"]
         if isinstance(subtitle_data, str):
             track = SubtitleTrack.from_json(subtitle_data)
         else:
             track = SubtitleTrack.from_dict(subtitle_data)
 
-        # Output path
         base_name = os.path.splitext(os.path.basename(project["title"]))[0]
         output_name = f"{base_name}_captioned_{uuid.uuid4().hex[:6]}{ext}"
         output_path = os.path.join(EXPORTS_DIR, output_name)
@@ -470,7 +433,6 @@ async def download_srt(project_id: int):
 
     srt_content = generate_srt(track)
 
-    # Write to temp file
     tmp = tempfile.NamedTemporaryFile(suffix=".srt", delete=False, mode="w", encoding="utf-8")
     tmp.write(srt_content)
     tmp.close()
@@ -485,7 +447,6 @@ async def download_srt(project_id: int):
 
 @app.get("/api/projects/{project_id}/thumbnail")
 async def get_thumbnail(project_id: int):
-    """Get project thumbnail image."""
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -499,7 +460,6 @@ async def get_thumbnail(project_id: int):
 
 @app.get("/api/projects/{project_id}/timeline_sprite")
 async def get_timeline_sprite(project_id: int):
-    """Get project timeline video sprite sheet."""
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -515,7 +475,6 @@ async def get_timeline_sprite(project_id: int):
 
 @app.get("/api/projects/{project_id}/waveform")
 async def get_waveform(project_id: int):
-    """Get project audio waveform image."""
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -528,9 +487,9 @@ async def get_waveform(project_id: int):
 
     raise HTTPException(404, "Waveform not available")
 
+
 @app.post("/api/projects/{project_id}/timeline_assets")
 async def generate_timeline_assets_endpoint(project_id: int):
-    """Manually trigger timeline asset generation."""
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -540,11 +499,12 @@ async def generate_timeline_assets_endpoint(project_id: int):
     duration = project.get("video_duration")
     if not video_path or not thumb_path or not duration:
         raise HTTPException(400, "Missing project video data")
-        
+
     asyncio.get_running_loop().run_in_executor(
         None, generate_timeline_assets, video_path, duration, thumb_path
     )
     return {"message": "Timeline asset generation started"}
+
 
 # ── Export download ───────────────────────────────────────────────────────────
 
@@ -587,7 +547,7 @@ async def list_available_models():
 
 @app.post("/api/models/download")
 async def download_model(body: dict):
-    """Start downloading a model. Returns a task_id."""
+    """Start downloading a Whisper model. Returns a task_id."""
     model_name = body.get("name")
     if not model_name:
         raise HTTPException(400, "Model name required")
@@ -601,17 +561,14 @@ async def download_model(body: dict):
 
 
 async def _run_model_download(task_id: str, model_name: str):
-    """Background model download task."""
+    """Background Whisper model download task."""
     try:
         async def progress_cb(percent, message):
             _tasks[task_id] = {"percent": percent, "message": message, "result": None}
             _task_events[task_id].set()
             _task_events[task_id] = asyncio.Event()
 
-        if model_name.startswith("faster-whisper"):
-            model = await download_whisper_model(model_name, progress_cb)
-        else:
-            model = await download_vosk_model(model_name, progress_cb)
+        model = await download_whisper_model(model_name, progress_cb)
 
         _tasks[task_id] = {
             "percent": 100,
@@ -661,6 +618,63 @@ async def get_presets():
     return []
 
 
+@app.post("/api/presets")
+async def save_preset(body: dict):
+    """Save a user preset (appended to presets file, marked as user preset).
+    Body: { name, description, standard_style, highlight_style, spotlight_style, animation_type, animation_duration }
+    """
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(400, "Preset name is required")
+
+    presets = []
+    if os.path.exists(PRESETS_PATH):
+        with open(PRESETS_PATH, "r", encoding="utf-8") as f:
+            presets = json.load(f)
+
+    preset = {
+        "name": name,
+        "description": body.get("description", ""),
+        "is_builtin": False,
+        "standard_style": body.get("standard_style", {}),
+        "highlight_style": body.get("highlight_style", {}),
+        "spotlight_style": body.get("spotlight_style", {}),
+        "animation_type": body.get("animation_type", "none"),
+        "animation_duration": body.get("animation_duration", 0.3),
+    }
+
+    presets.append(preset)
+
+    os.makedirs(os.path.dirname(PRESETS_PATH), exist_ok=True)
+    with open(PRESETS_PATH, "w", encoding="utf-8") as f:
+        json.dump(presets, f, ensure_ascii=False, indent=2)
+
+    return preset
+
+
+@app.delete("/api/presets/{preset_name}")
+async def delete_preset(preset_name: str):
+    """Delete a user preset by name."""
+    if not os.path.exists(PRESETS_PATH):
+        raise HTTPException(404, "No presets found")
+
+    with open(PRESETS_PATH, "r", encoding="utf-8") as f:
+        presets = json.load(f)
+
+    original_count = len(presets)
+    presets = [p for p in presets if p.get("name") != preset_name or p.get("is_builtin")]
+
+    if len(presets) == original_count:
+        raise HTTPException(404, f"Preset '{preset_name}' not found or is built-in")
+
+    with open(PRESETS_PATH, "w", encoding="utf-8") as f:
+        json.dump(presets, f, ensure_ascii=False, indent=2)
+
+    return {"deleted": True}
+
+
+# ── Task status ───────────────────────────────────────────────────────────────
+
 @app.get("/api/tasks/{task_id}")
 async def get_task_status(task_id: str):
     """Get the current status of a background task."""
@@ -687,7 +701,6 @@ async def ws_progress(websocket: WebSocket, task_id: str):
             if task["percent"] >= 100 or task["percent"] < 0:
                 break
 
-            # Wait for next update
             event = _task_events.get(task_id)
             if event:
                 try:
@@ -725,7 +738,6 @@ def _generate_thumbnail(video_path: str, thumb_path: str):
 
 if os.path.isdir(WEB_DIR):
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
-    # Also mount CSS and JS subdirectories
     css_dir = os.path.join(WEB_DIR, "css")
     js_dir = os.path.join(WEB_DIR, "js")
     if os.path.isdir(css_dir):

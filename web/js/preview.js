@@ -1,6 +1,10 @@
 /**
  * OWN — Canvas-based subtitle preview overlay.
  * Renders subtitles on a <canvas> overlaying the <video> element.
+ * Features:
+ *  - word-by-word marker rendering (standard / highlight / spotlight)
+ *  - text_box_width wrapping
+ *  - draggable right-edge handle for text_box_width adjustment
  */
 
 class SubtitlePreview {
@@ -10,16 +14,24 @@ class SubtitlePreview {
         this.ctx = canvasEl.getContext('2d');
         this.subtitleTrack = null;
         this.animationFrame = null;
-        this.fonts = {};
+
+        // --- Draggable text-box handle state ---
+        this._handleDragging = false;
+        this._handleCursor = 'ew-resize';
+
+        this._bindHandleEvents();
     }
 
     setTrack(trackData) {
         this.subtitleTrack = trackData;
     }
 
-    start() {
-        this.render();
+    /** Call when text_box_width changes so handle moves immediately. */
+    onWidthChange(cb) {
+        this._onWidthChange = cb;
     }
+
+    start() { this.render(); }
 
     stop() {
         if (this.animationFrame) {
@@ -41,6 +53,8 @@ class SubtitlePreview {
             this.canvas.height = rect.height;
         }
     }
+
+    // ── Core draw ──────────────────────────────────────────────────────────────
 
     draw() {
         const ctx = this.ctx;
@@ -65,307 +79,368 @@ class SubtitlePreview {
             }
         }
 
+        // Draw handle only when a subtitle is visible
+        if (activeSeg) {
+            this._drawHandle(ctx, track, w, h);
+        }
+
         if (!activeSeg) return;
 
-        const posX = track.position_x || 0.5;
-        const posY = track.position_y || 0.9;
+        const posX = track.position_x ?? 0.5;
+        const posY = track.position_y ?? 0.9;
 
         // Compute animation state
-        const segStart = activeSeg.words[0]?.start_time || 0;
-        const segEnd = activeSeg.words[activeSeg.words.length - 1]?.end_time || 0;
+        const segStart = activeSeg.words[0]?.start_time ?? 0;
+        const segEnd = activeSeg.words[activeSeg.words.length - 1]?.end_time ?? 0;
         const animType = track.animation_type || 'none';
-        const animDur = track.animation_duration || 0.3;
+        const animDur = track.animation_duration ?? 0.3;
         const animState = computeAnimState(animType, currentTime, segStart, segEnd, animDur, h);
 
         if (animState.opacity <= 0) return;
 
-        // Scale font size based on canvas vs actual resolution
         const scaleFactor = w / (this.video.videoWidth || 1920);
 
-        // Check if any words have special styling
-        const hasSpecialWords = activeSeg.words.some(w => w.is_special);
+        // Route to word-by-word if any word has a non-standard marker
+        const hasNonStandard = activeSeg.words.some(word =>
+            (word.marker && word.marker !== 'standard') || word.style_override
+        );
 
-        if (hasSpecialWords) {
-            // Render each word individually with its own style
-            this.drawSegmentWithWordStyles(ctx, activeSeg, track, posX, posY, animState, scaleFactor, w, h);
+        if (hasNonStandard) {
+            this.drawSegmentWordByWord(ctx, activeSeg, track, posX, posY, animState, scaleFactor, w, h);
         } else {
-            // Render entire segment with segment style
             this.drawSegmentUniform(ctx, activeSeg, track, posX, posY, animState, scaleFactor, w, h);
         }
 
         ctx.globalAlpha = 1;
     }
 
+    // ── Draggable handle ───────────────────────────────────────────────────────
+
+    _getHandleX(track, w) {
+        const boxWidth = track.text_box_width ?? 0.8;
+        const posX = track.position_x ?? 0.5;
+        const halfBox = boxWidth * w / 2;
+        return posX * w + halfBox;
+    }
+
+    _drawHandle(ctx, track, w, h) {
+        const hx = this._getHandleX(track, w);
+        const lineTop = h * 0.05;
+        const lineBottom = h * 0.95;
+
+        ctx.save();
+        ctx.setLineDash([6, 5]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(hx, lineTop);
+        ctx.lineTo(hx, lineBottom);
+        ctx.stroke();
+
+        // Grip circle
+        const cy = h * 0.5;
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath();
+        ctx.arc(hx, cy, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Grip chevrons
+        ctx.strokeStyle = 'rgba(60,60,60,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(hx - 3, cy - 4); ctx.lineTo(hx - 6, cy); ctx.lineTo(hx - 3, cy + 4);
+        ctx.moveTo(hx + 3, cy - 4); ctx.lineTo(hx + 6, cy); ctx.lineTo(hx + 3, cy + 4);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    _bindHandleEvents() {
+        const cvs = this.canvas;
+
+        const hitTest = (clientX) => {
+            if (!this.subtitleTrack) return false;
+            const rect = cvs.getBoundingClientRect();
+            const x = clientX - rect.left;
+            const w = cvs.width;
+            const hx = this._getHandleX(this.subtitleTrack, w);
+            return Math.abs(x - hx) <= 12;
+        };
+
+        cvs.addEventListener('mousemove', (e) => {
+            if (this._handleDragging) {
+                // Update text_box_width
+                const rect = cvs.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const w = cvs.width;
+                const track = this.subtitleTrack;
+                const posX = (track.position_x ?? 0.5) * w;
+                const newHalfBox = x - posX;
+                const newWidth = Math.max(0.1, Math.min(1.0, (newHalfBox * 2) / w));
+                track.text_box_width = newWidth;
+                if (this._onWidthChange) this._onWidthChange(newWidth);
+            } else {
+                cvs.style.cursor = hitTest(e.clientX) ? this._handleCursor : 'default';
+            }
+        });
+
+        cvs.addEventListener('mousedown', (e) => {
+            if (hitTest(e.clientX)) {
+                this._handleDragging = true;
+                e.preventDefault();
+            }
+        });
+
+        const stopDrag = () => {
+            if (this._handleDragging) {
+                this._handleDragging = false;
+                if (this._onWidthChange) this._onWidthChange(this.subtitleTrack?.text_box_width);
+            }
+        };
+        cvs.addEventListener('mouseup', stopDrag);
+        window.addEventListener('mouseup', stopDrag);
+    }
+
+    // ── Uniform renderer (all words same style, with wrapping) ─────────────────
+
     drawSegmentUniform(ctx, seg, track, posX, posY, animState, scaleFactor, w, h) {
         const style = seg.style || track.global_style || {};
+        const boxW = (track.text_box_width ?? 0.8) * w;
 
-        // Build display text with text transform
-        let displayText = seg.words.map(w => w.word).join(' ');
-        displayText = this.applyTextTransform(displayText, style.text_transform);
+        let fullText = seg.words.map(wd => wd.word).join(' ');
+        fullText = this.applyTextTransform(fullText, style.text_transform);
 
         if (animState.visibleChars >= 0) {
-            displayText = displayText.substring(0, animState.visibleChars);
+            fullText = fullText.substring(0, animState.visibleChars);
         }
-
-        if (!displayText.trim()) return;
+        if (!fullText.trim()) return;
 
         const fontSize = Math.round((style.font_size || 48) * scaleFactor);
         const fontStr = this.buildFontStr(style, fontSize);
         ctx.font = fontStr;
         ctx.textBaseline = 'top';
 
-        // Adjust for letter spacing
-        const letterSpacing = (style.letter_spacing || 0) * scaleFactor;
-        ctx.letterSpacing = `${letterSpacing}px`;
+        // Word-wrap
+        const lines = this._wrapText(ctx, fullText, boxW);
 
-        const metrics = ctx.measureText(displayText);
-        const textW = metrics.width;
-        const lineHeight = style.line_height || 1.2;
-        const textH = fontSize * lineHeight;
+        const lineHeightMult = style.line_height ?? 1.2;
+        const lineH = fontSize * lineHeightMult;
+        const totalH = lineH * lines.length;
 
-        let x = posX * w - textW / 2;
-        let y = posY * h - textH;
+        const baseX = posX * w;
+        const baseY = posY * h - totalH + (animState.offsetY ?? 0);
 
-        x += (animState.offsetX || 0) * scaleFactor;
-        y += (animState.offsetY || 0) * scaleFactor;
+        ctx.globalAlpha = animState.opacity * (style.text_opacity ?? 1);
 
-        x = Math.max(0, Math.min(x, w - textW));
-        y = Math.max(0, Math.min(y, h - textH));
-
-        // Apply text opacity
-        const textOpacity = style.text_opacity ?? 1;
-        ctx.globalAlpha = animState.opacity * textOpacity;
-
-        const rotationAngle = (style.rotation || 0) * Math.PI / 180;
-        if (rotationAngle !== 0) {
+        const rotation = (style.rotation || 0) * Math.PI / 180;
+        if (rotation !== 0) {
             ctx.save();
-            ctx.translate(x + textW / 2, y + textH / 2);
-            ctx.rotate(rotationAngle);
-            ctx.translate(-(x + textW / 2), -(y + textH / 2));
+            ctx.translate(baseX, baseY + totalH / 2);
+            ctx.rotate(rotation);
+            ctx.translate(-baseX, -(baseY + totalH / 2));
         }
 
-        // Background box
-        if (style.bg_color) {
-            ctx.fillStyle = style.bg_color;
-            const pad = (style.bg_padding || 8) * scaleFactor;
-            ctx.fillRect(x - pad, y - pad, textW + 2 * pad, textH + 2 * pad);
-        }
+        for (let li = 0; li < lines.length; li++) {
+            const lineText = lines[li];
+            if (!lineText.trim()) continue;
 
-        // Shadow
-        if (style.shadow_enabled !== false && style.shadow_color && (style.shadow_offset_x || style.shadow_offset_y || style.shadow_blur)) {
-            ctx.save();
-            if (style.shadow_blur) {
-                ctx.shadowColor = style.shadow_color;
-                ctx.shadowBlur = (style.shadow_blur || 0) * scaleFactor;
-                ctx.shadowOffsetX = (style.shadow_offset_x || 0) * scaleFactor;
-                ctx.shadowOffsetY = (style.shadow_offset_y || 0) * scaleFactor;
-            } else {
-                ctx.fillStyle = style.shadow_color;
-            }
-            if (!style.shadow_blur) {
-                ctx.fillText(displayText,
-                    x + (style.shadow_offset_x || 0) * scaleFactor,
-                    y + (style.shadow_offset_y || 0) * scaleFactor
-                );
-            } else {
-                ctx.fillStyle = style.shadow_color;
-                ctx.fillText(displayText, x, y);
-            }
-            ctx.restore();
-        }
-
-        // Outline / Stroke
-        if (style.stroke_enabled !== false && style.outline_color && style.outline_width > 0) {
-            ctx.strokeStyle = style.outline_color;
-            ctx.lineWidth = style.outline_width * scaleFactor * 2;
-            ctx.lineJoin = 'round';
-            ctx.strokeText(displayText, x, y);
-        }
-
-        // Karaoke highlight
-        if (animState.highlightIdx >= 0) {
-            this.drawKaraoke(ctx, seg, style, animState, x, y, fontSize, scaleFactor);
-        } else {
-            // Main text fill (solid or gradient)
-            ctx.fillStyle = this.buildFillStyle(ctx, style, x, y, textW, textH, scaleFactor);
-            ctx.fillText(displayText, x, y);
-        }
-
-        // Reset letter spacing
-        ctx.letterSpacing = '0px';
-
-        if (rotationAngle !== 0) {
-            ctx.restore();
-        }
-    }
-
-    drawSegmentWithWordStyles(ctx, seg, track, posX, posY, animState, scaleFactor, w, h) {
-        const globalStyle = track.global_style || {};
-        const segStyle = seg.style || globalStyle;
-
-        // Calculate total text width for positioning
-        let totalWidth = 0;
-        const wordWidths = [];
-
-        seg.words.forEach(word => {
-            const style = this.getWordStyle(word, segStyle, globalStyle, track);
-            const fontSize = Math.round((style.font_size || 48) * scaleFactor);
-            const fontStr = this.buildFontStr(style, fontSize);
-            ctx.font = fontStr;
-            const letterSpacing = (style.letter_spacing || 0) * scaleFactor;
-            ctx.letterSpacing = `${letterSpacing}px`;
-            const wordText = this.applyTextTransform(word.word, style.text_transform) + ' ';
-            const metrics = ctx.measureText(wordText);
-            wordWidths.push(metrics.width);
-            totalWidth += metrics.width;
-        });
-
-        // Starting X position
-        let currentX = posX * w - totalWidth / 2;
-        currentX += (animState.offsetX || 0) * scaleFactor;
-
-        // Y position
-        const baseFontSize = Math.round((segStyle.font_size || 48) * scaleFactor);
-        const lineHeight = segStyle.line_height || 1.2;
-        let currentY = posY * h - baseFontSize * lineHeight;
-        currentY += (animState.offsetY || 0) * scaleFactor;
-
-        ctx.textBaseline = 'top';
-
-        // Render each word
-        seg.words.forEach((word, idx) => {
-            const style = this.getWordStyle(word, segStyle, globalStyle, track);
-            const fontSize = Math.round((style.font_size || 48) * scaleFactor);
-            let wordText = this.applyTextTransform(word.word, style.text_transform) + ' ';
-
-            // Set font for this word
-            const fontStr = this.buildFontStr(style, fontSize);
-            ctx.font = fontStr;
-            const letterSpacing = (style.letter_spacing || 0) * scaleFactor;
-            ctx.letterSpacing = `${letterSpacing}px`;
-
-            const wordW = wordWidths[idx];
-            const wordLineHeight = style.line_height || 1.2;
-            const wordH = fontSize * wordLineHeight;
-
-            const textOpacity = style.text_opacity ?? 1;
-            ctx.globalAlpha = animState.opacity * textOpacity;
-
-            // Rotation
-            const rotationAngle = (style.rotation || 0) * Math.PI / 180;
-            if (rotationAngle !== 0) {
-                ctx.save();
-                ctx.translate(currentX + wordW / 2, currentY + wordH / 2);
-                ctx.rotate(rotationAngle);
-                ctx.translate(-(currentX + wordW / 2), -(currentY + wordH / 2));
-            }
+            const metrics = ctx.measureText(lineText);
+            const lineW = metrics.width;
+            const lx = baseX - lineW / 2 + (animState.offsetX ?? 0);
+            const ly = baseY + li * lineH;
 
             // Background
             if (style.bg_color) {
                 ctx.fillStyle = style.bg_color;
                 const pad = (style.bg_padding || 8) * scaleFactor;
-                ctx.fillRect(currentX - pad, currentY - pad, wordW + 2 * pad, wordH + 2 * pad);
+                ctx.fillRect(lx - pad, ly - pad, lineW + 2 * pad, lineH + 2 * pad);
             }
 
-            // Shadow
-            if (style.shadow_enabled !== false && style.shadow_color && (style.shadow_offset_x || style.shadow_offset_y || style.shadow_blur)) {
+            // Shadow (hard offset)
+            if (style.shadow_enabled !== false && style.shadow_color &&
+                (style.shadow_offset_x || style.shadow_offset_y || style.shadow_blur)) {
                 ctx.save();
-                if (style.shadow_blur) {
-                    ctx.shadowColor = style.shadow_color;
-                    ctx.shadowBlur = (style.shadow_blur || 0) * scaleFactor;
-                    ctx.shadowOffsetX = (style.shadow_offset_x || 0) * scaleFactor;
-                    ctx.shadowOffsetY = (style.shadow_offset_y || 0) * scaleFactor;
-                    ctx.fillStyle = style.shadow_color;
-                    ctx.fillText(wordText, currentX, currentY);
-                } else {
-                    ctx.fillStyle = style.shadow_color;
-                    ctx.fillText(wordText,
-                        currentX + (style.shadow_offset_x || 0) * scaleFactor,
-                        currentY + (style.shadow_offset_y || 0) * scaleFactor
-                    );
-                }
+                ctx.shadowColor = style.shadow_color;
+                ctx.shadowBlur = (style.shadow_blur || 0) * scaleFactor;
+                ctx.shadowOffsetX = (style.shadow_offset_x || 0) * scaleFactor;
+                ctx.shadowOffsetY = (style.shadow_offset_y || 0) * scaleFactor;
+                ctx.fillStyle = style.text_color || '#FFFFFF';
+                ctx.fillText(lineText, lx, ly);
                 ctx.restore();
             }
 
-            // Outline / Stroke
+            // Stroke
             if (style.stroke_enabled !== false && style.outline_color && style.outline_width > 0) {
                 ctx.strokeStyle = style.outline_color;
                 ctx.lineWidth = style.outline_width * scaleFactor * 2;
                 ctx.lineJoin = 'round';
-                ctx.strokeText(wordText, currentX, currentY);
+                ctx.strokeText(lineText, lx, ly);
             }
 
-            // Main text fill
-            ctx.fillStyle = this.buildFillStyle(ctx, style, currentX, currentY, wordW, wordH, scaleFactor);
-            ctx.fillText(wordText, currentX, currentY);
+            // Fill
+            ctx.fillStyle = this.buildFillStyle(ctx, style, lx, ly, lineW, lineH, scaleFactor);
+            ctx.fillText(lineText, lx, ly);
+        }
 
-            // Reset letter spacing
-            ctx.letterSpacing = '0px';
-
-            if (rotationAngle !== 0) {
-                ctx.restore();
-            }
-
-            currentX += wordW;
-        });
+        if (rotation !== 0) ctx.restore();
     }
 
-    getWordStyle(word, segStyle, globalStyle, track) {
-        // If word has individual style override, use it
-        if (word.style_override) {
-            return word.style_override;
+    // ── Word-by-word renderer (marker-aware, with wrapping) ────────────────────
+
+    drawSegmentWordByWord(ctx, seg, track, posX, posY, animState, scaleFactor, w, h) {
+        const segStyle = seg.style || track.global_style || {};
+        const boxW = (track.text_box_width ?? 0.8) * w;
+
+        ctx.textBaseline = 'top';
+
+        // 1. Measure every word with its resolved style
+        const wordInfos = seg.words.map((word, idx) => {
+            const style = this.getWordStyle(word, segStyle, track);
+            const fontSize = Math.round((style.font_size || 48) * scaleFactor);
+            const fontStr = this.buildFontStr(style, fontSize);
+            ctx.font = fontStr;
+            const text = this.applyTextTransform(word.word, style.text_transform) + (idx < seg.words.length - 1 ? ' ' : '');
+            const measured = ctx.measureText(text);
+            return { text, style, fontSize, fontStr, width: measured.width };
+        });
+
+        // 2. Group into lines
+        const lines = [];  // each line: [ wordInfo, ... ]
+        let currentLine = [];
+        let currentLineW = 0;
+
+        for (const info of wordInfos) {
+            if (currentLine.length > 0 && currentLineW + info.width > boxW) {
+                lines.push(currentLine);
+                currentLine = [info];
+                currentLineW = info.width;
+            } else {
+                currentLine.push(info);
+                currentLineW += info.width;
+            }
+        }
+        if (currentLine.length > 0) lines.push(currentLine);
+
+        // 3. Compute total block height using base segment style line height
+        const baseLineH = (segStyle.font_size || 48) * scaleFactor * (segStyle.line_height ?? 1.2);
+        const totalH = baseLineH * lines.length;
+
+        const baseX = posX * w;
+        const baseY = posY * h - totalH + (animState.offsetY ?? 0);
+
+        // 4. Draw line by line, word by word
+        for (let li = 0; li < lines.length; li++) {
+            const line = lines[li];
+            const lineW = line.reduce((s, info) => s + info.width, 0);
+            let curX = baseX - lineW / 2 + (animState.offsetX ?? 0);
+            const ly = baseY + li * baseLineH;
+
+            for (const info of line) {
+                const { text, style, fontSize, fontStr, width: ww } = info;
+                const lineH = fontSize * (style.line_height ?? 1.2);
+
+                ctx.font = fontStr;
+                ctx.globalAlpha = animState.opacity * (style.text_opacity ?? 1);
+
+                // Background
+                if (style.bg_color) {
+                    ctx.fillStyle = style.bg_color;
+                    const pad = (style.bg_padding || 8) * scaleFactor;
+                    ctx.fillRect(curX - pad, ly - pad, ww + 2 * pad, lineH + 2 * pad);
+                }
+
+                // Shadow
+                if (style.shadow_enabled !== false && style.shadow_color &&
+                    (style.shadow_offset_x || style.shadow_offset_y || style.shadow_blur)) {
+                    ctx.save();
+                    ctx.shadowColor = style.shadow_color;
+                    ctx.shadowBlur = (style.shadow_blur || 0) * scaleFactor;
+                    ctx.shadowOffsetX = (style.shadow_offset_x || 0) * scaleFactor;
+                    ctx.shadowOffsetY = (style.shadow_offset_y || 0) * scaleFactor;
+                    ctx.fillStyle = style.text_color || '#FFFFFF';
+                    ctx.fillText(text, curX, ly);
+                    ctx.restore();
+                }
+
+                // Stroke
+                if (style.stroke_enabled !== false && style.outline_color && style.outline_width > 0) {
+                    ctx.strokeStyle = style.outline_color;
+                    ctx.lineWidth = style.outline_width * scaleFactor * 2;
+                    ctx.lineJoin = 'round';
+                    ctx.strokeText(text, curX, ly);
+                }
+
+                // Fill
+                ctx.fillStyle = this.buildFillStyle(ctx, style, curX, ly, ww, lineH, scaleFactor);
+                ctx.fillText(text, curX, ly);
+
+                curX += ww;
+            }
         }
 
-        // If word is in a group, use group style
-        if (word.group_id && track.special_groups && track.special_groups[word.group_id]) {
-            return track.special_groups[word.group_id].style;
-        }
+        ctx.globalAlpha = 1;
+    }
 
-        // Otherwise use segment style
+    // ── Style resolution ───────────────────────────────────────────────────────
+
+    /**
+     * Resolve word style following the marker system:
+     *   1. style_override (individual per-word)
+     *   2. marker='highlight' → track.highlight_style
+     *   3. marker='spotlight' → track.spotlight_style
+     *   4. segment style
+     */
+    getWordStyle(word, segStyle, track) {
+        if (word.style_override) return word.style_override;
+
+        const marker = word.marker || 'standard';
+        if (marker === 'highlight' && track.highlight_style) return track.highlight_style;
+        if (marker === 'spotlight' && track.spotlight_style) return track.spotlight_style;
+
         return segStyle;
     }
 
-    drawKaraoke(ctx, seg, style, animState, baseX, baseY, fontSize, scale) {
-        let curX = baseX;
-        seg.words.forEach((word, idx) => {
-            const text = this.applyTextTransform(word.word, style.text_transform) + ' ';
-            if (idx === animState.highlightIdx) {
-                ctx.fillStyle = '#FFD700';
-                const hlFontSize = Math.round(fontSize * 1.15);
-                const savedFont = ctx.font;
-                ctx.font = ctx.font.replace(`${fontSize}px`, `${hlFontSize}px`);
-                ctx.fillText(text, curX, baseY);
-                curX += ctx.measureText(text).width;
-                ctx.font = savedFont;
+    // ── Text wrapping helper ───────────────────────────────────────────────────
+
+    _wrapText(ctx, text, maxWidth) {
+        const words = text.split(' ');
+        const lines = [];
+        let current = '';
+
+        for (const word of words) {
+            const test = current ? current + ' ' + word : word;
+            if (current && ctx.measureText(test).width > maxWidth) {
+                lines.push(current);
+                current = word;
             } else {
-                ctx.fillStyle = style.text_color || '#FFFFFF';
-                ctx.fillText(text, curX, baseY);
-                curX += ctx.measureText(text).width;
+                current = test;
             }
-        });
+        }
+        if (current) lines.push(current);
+        return lines.length > 0 ? lines : [''];
     }
 
-    // Build font string from style
+    // ── Helpers ────────────────────────────────────────────────────────────────
+
     buildFontStr(style, fontSize) {
-        const weight = style.font_weight || 400;
-        const fontStyle = style.font_style || 'normal';
-        // Backwards compat: legacy bold/italic
-        const legacyWeight = style.bold ? 'bold' : weight;
-        const legacyStyle = style.italic ? 'italic' : fontStyle;
-        return `${legacyStyle} ${legacyWeight} ${fontSize}px "${style.font_family || 'sans-serif'}"`;
+        const weight = style.font_weight || (style.bold ? 700 : 400);
+        const fontStyle = style.font_style || (style.italic ? 'italic' : 'normal');
+        return `${fontStyle} ${weight} ${fontSize}px "${style.font_family || 'sans-serif'}"`;
     }
 
-    // Apply text transform
     applyTextTransform(text, transform) {
         switch (transform) {
-            case 'uppercase': return text.toUpperCase();
-            case 'lowercase': return text.toLowerCase();
+            case 'uppercase':  return text.toUpperCase();
+            case 'lowercase':  return text.toLowerCase();
             case 'capitalize': return text.replace(/\b\w/g, c => c.toUpperCase());
-            default: return text;
+            default:           return text;
         }
     }
 
-    // Build fill style (solid color or gradient)
     buildFillStyle(ctx, style, x, y, textW, textH, scaleFactor) {
         if (style.fill_type === 'gradient') {
             const angle = (style.gradient_angle || 0) * Math.PI / 180;
@@ -381,7 +456,6 @@ class SubtitlePreview {
                 grad.addColorStop(1, c2);
                 return grad;
             } else {
-                // Linear gradient
                 const dx = Math.cos(angle) * textW / 2;
                 const dy = Math.sin(angle) * textH / 2;
                 const cx = x + textW / 2;
@@ -434,15 +508,8 @@ function computeAnimState(type, current, segStart, segEnd, animDur, frameH) {
             break;
         }
 
-        case 'typewriter': {
-            // Removed segment text dependency - approximate with progress
+        case 'typewriter':
             state.visibleChars = Math.round(Math.min(progress / 0.8, 1.0) * 1000);
-            break;
-        }
-
-        case 'karaoke':
-            // Will be computed by caller based on word timings
-            state.highlightIdx = -1;
             break;
 
         case 'pop':

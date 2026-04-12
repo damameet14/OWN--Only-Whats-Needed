@@ -5,6 +5,8 @@
 - task-fix-export-special-styles.md — Complete — Owner: agent — Priority: High
 - [task-special-group-highlighting.md](file:///c:/Users/damam/OneDrive/Desktop/stt_vosk/.agents/tasks/task-special-group-highlighting.md) — Completed — Owner: agent — Priority: High
 - [task-ux-fixes.md](file:///c:/Users/damam/OneDrive/Desktop/stt_vosk/.agents/tasks/task-ux-fixes.md) — Completed — Owner: agent — Priority: Normal
+- [task-marker-overhaul.md](file:///c:/Users/damam/OneDrive/Desktop/stt_vosk/.agents/tasks/task-marker-overhaul.md) — Complete — Owner: agent — Priority: High
+
 
 ## Not Started
 

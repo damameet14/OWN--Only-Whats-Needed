@@ -82,7 +82,7 @@ function initUploadZone() {
 async function uploadAndTranscribe(file) {
     const title = document.getElementById('modal-title').value || file.name;
     const language = document.getElementById('modal-language').value;
-    const engine = document.getElementById('modal-engine').value;
+    const engine = 'whisper';
     const wordsPerLine = parseInt(document.getElementById('upload-wpl')?.value || '4');
 
     const progressDiv = document.getElementById('upload-progress');

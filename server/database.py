@@ -232,32 +232,30 @@ def delete_project(project_id: int) -> bool:
 # ── Auto-detect existing models ──────────────────────────────────────────────
 
 def scan_existing_models(project_root: str):
-    """Check the project root for any existing Vosk model directories
-    and register them if not already in the database."""
-    conn = get_connection()
-    existing_paths = {
-        r["path"] for r in
-        conn.execute("SELECT path FROM models").fetchall()
-    }
+    """Scan for existing installed Whisper models in the models directory
+    and register any that are not yet in the database."""
+    from server.config import MODELS_DIR
 
-    for entry in os.listdir(project_root):
-        full_path = os.path.join(project_root, entry)
+    if not os.path.isdir(MODELS_DIR):
+        return
+
+    conn = get_connection()
+    existing_names = {
+        r["name"] for r in
+        conn.execute("SELECT name FROM models").fetchall()
+    }
+    conn.close()
+
+    # Look for faster-whisper model directories
+    for entry in os.listdir(MODELS_DIR):
+        if entry in existing_names:
+            continue
+        full_path = os.path.join(MODELS_DIR, entry)
         if not os.path.isdir(full_path):
             continue
-        if not entry.startswith("vosk-model"):
+        # Only register if it has a model.bin (CTranslate2 format)
+        if not os.path.isfile(os.path.join(full_path, "model.bin")):
             continue
-        if full_path in existing_paths:
-            continue
-
-        # Determine language from the model directory name
-        # e.g., vosk-model-hi-0.22 → "hi", vosk-model-small-hi-0.22 → "hi"
-        parts = entry.replace("vosk-model-", "").split("-")
-        # Filter out "small", "big" and version numbers
-        lang = "unknown"
-        for p in parts:
-            if p not in ("small", "big") and not p.replace(".", "").isdigit():
-                lang = p
-                break
 
         size = sum(
             os.path.getsize(os.path.join(dp, f))
@@ -267,12 +265,9 @@ def scan_existing_models(project_root: str):
 
         register_model(
             name=entry,
-            engine="vosk",
-            language=lang,
+            engine="whisper",
+            language="multi",
             path=full_path,
             size_bytes=size,
-            is_default=(len(existing_paths) == 0),
+            is_default=False,
         )
-        existing_paths.add(full_path)
-
-    conn.close()

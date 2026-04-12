@@ -20,8 +20,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadProject(projectId);
     initVideoPlayer();
     initTimelineControls();
-    initStylingSystem();  // Replaces initStyleControls and initTabSwitching
+    initStylingSystem();
     initFullTextEditing();
+    initSentenceMode();
     initExport();
     initSrtDownload();
     initTranscription();
@@ -36,96 +37,13 @@ function getProjectIdFromUrl() {
     return parseInt(parts[parts.length - 1]) || null;
 }
 
-// Ensure subtitleTrack has all necessary methods (for JSON-loaded data)
+// Ensure subtitleTrack has required defaults after JSON load
 function ensureSubtitleTrackMethods() {
     if (!subtitleTrack) return;
-
-    // Ensure special_groups exists
-    if (!subtitleTrack.special_groups) {
-        subtitleTrack.special_groups = {};
-    }
-
-    // Add create_group method if missing
-    if (!subtitleTrack.create_group) {
-        subtitleTrack.create_group = function(name = "") {
-            const groupId = 'group_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            this.special_groups[groupId] = {
-                id: groupId,
-                name: name,
-                style: this.global_style ? JSON.parse(JSON.stringify(this.global_style)) : {}
-            };
-            return groupId;
-        };
-    }
-
-    // Add delete_group method if missing
-    if (!subtitleTrack.delete_group) {
-        subtitleTrack.delete_group = function(groupId) {
-            if (this.special_groups && this.special_groups[groupId]) {
-                delete this.special_groups[groupId];
-                // Remove group_id from all words
-                if (this.segments) {
-                    for (const seg of this.segments) {
-                        if (seg.words) {
-                            for (const word of seg.words) {
-                                if (word.group_id === groupId) {
-                                    word.group_id = null;
-                                    word.is_special = false;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        };
-    }
-
-    // Add get_group_style method if missing
-    if (!subtitleTrack.get_group_style) {
-        subtitleTrack.get_group_style = function(groupId) {
-            const group = this.special_groups && this.special_groups[groupId];
-            return group ? group.style : null;
-        };
-    }
-
-    // Add get_group_members method if missing
-    if (!subtitleTrack.get_group_members) {
-        subtitleTrack.get_group_members = function(groupId) {
-            const members = [];
-            if (this.segments) {
-                for (let segIdx = 0; segIdx < this.segments.length; segIdx++) {
-                    const seg = this.segments[segIdx];
-                    if (seg.words) {
-                        for (let wordIdx = 0; wordIdx < seg.words.length; wordIdx++) {
-                            const word = seg.words[wordIdx];
-                            if (word.group_id === groupId) {
-                                members.push([segIdx, wordIdx]);
-                            }
-                        }
-                    }
-                }
-            }
-            return members;
-        };
-    }
-
-    // Ensure global_style has copy method
-    if (subtitleTrack.global_style && !subtitleTrack.global_style.copy) {
-        subtitleTrack.global_style.copy = function() {
-            return JSON.parse(JSON.stringify(this));
-        };
-    }
-
-    // Ensure all segment styles have copy method
-    if (subtitleTrack.segments) {
-        for (const seg of subtitleTrack.segments) {
-            if (seg.style && !seg.style.copy) {
-                seg.style.copy = function() {
-                    return JSON.parse(JSON.stringify(this));
-                };
-            }
-        }
-    }
+    if (!subtitleTrack.text_box_width) subtitleTrack.text_box_width = 0.8;
+    if (!subtitleTrack.highlight_style) subtitleTrack.highlight_style = null;
+    if (!subtitleTrack.spotlight_style) subtitleTrack.spotlight_style = null;
+    if (subtitleTrack.sentence_mode === undefined) subtitleTrack.sentence_mode = false;
 }
 
 async function loadProject(id) {
@@ -157,6 +75,15 @@ async function loadProject(id) {
         if (!preview) {
             preview = new SubtitlePreview(video, canvas);
             preview.start();
+            // Wire handle drag back to UI
+            preview.onWidthChange((w) => {
+                if (!subtitleTrack) return;
+                const el = document.getElementById('global-text-box-width');
+                const valEl = document.getElementById('global-text-box-width-val');
+                if (el) el.value = Math.round((w ?? 0.8) * 100);
+                if (valEl) valEl.textContent = `${Math.round((w ?? 0.8) * 100)}%`;
+                autoSave();
+            });
         }
         if (subtitleTrack) {
             preview.setTrack(subtitleTrack);
@@ -557,13 +484,23 @@ function highlightSegment(idx) {
         el.classList.toggle('border-primary/30', i === idx);
         el.classList.toggle('bg-primary/5', i === idx);
     });
+
+    // When a segment is selected from the timeline, switch to Standard tab
+    if (idx >= 0) {
+        switchToMarkerTab('standard');
+        updateEditingIndicators();
+    }
 }
 
 function populateFullText(segments) {
     const textarea = document.getElementById('fulltext-area');
     if (!segments) return;
-    const allText = segments.map(seg => seg.words?.map(w => w.word).join(' ') || '').join('\n');
-    textarea.value = allText;
+    if (subtitleTrack?.sentence_mode) {
+        // In sentence mode each segment is one sentence, join with \n
+        textarea.value = segments.map(seg => seg.words?.map(w => w.word).join(' ') || '').join('\n');
+    } else {
+        textarea.value = segments.map(seg => seg.words?.map(w => w.word).join(' ') || '').join('\n');
+    }
 }
 
 function initFullTextEditing() {
@@ -573,75 +510,135 @@ function initFullTextEditing() {
     textarea.addEventListener('input', () => {
         if (!subtitleTrack || !subtitleTrack.segments) return;
 
-        // Split by newlines to get lines (keep empty lines to preserve segment count)
-        const lines = textarea.value.split('\n');
+        if (subtitleTrack.sentence_mode) {
+            // Sentence mode: each line delimited by \n is one segment
+            resegmentBySentence(textarea.value);
+        } else {
+            resegmentByWords(textarea.value);
+        }
 
-        // Update segments with new text
-        const newSegments = [];
-        for (let i = 0; i < Math.max(lines.length, subtitleTrack.segments.length); i++) {
-            const oldSeg = subtitleTrack.segments[i];
-            const lineText = lines[i] || '';
+        populateSegments(subtitleTrack.segments);
+        preview?.setTrack(subtitleTrack);
+        timeline?.setData(subtitleTrack, project.video_duration, project.id);
+        autoSave();
+    });
+}
 
-            if (oldSeg && oldSeg.words && oldSeg.words.length > 0) {
-                // Split line into words and update existing word timings
-                const newWords = lineText.trim().split(/\s+/).filter(w => w !== '');
-                const updatedWords = [];
+/** Re-segment using \n as sentence boundaries. */
+function resegmentBySentence(rawText) {
+    if (!subtitleTrack) return;
 
-                if (newWords.length > 0) {
-                    for (let j = 0; j < newWords.length; j++) {
-                        const oldWord = oldSeg.words[j];
-                        if (oldWord) {
-                            // Preserve timing from old word
-                            updatedWords.push({
-                                word: newWords[j],
-                                start_time: oldWord.start_time,
-                                end_time: oldWord.end_time,
-                                confidence: oldWord.confidence || 1.0
-                            });
-                        } else {
-                            // New word - estimate timing
-                            const lastWord = updatedWords[updatedWords.length - 1];
-                            const startTime = lastWord ? lastWord.end_time : (oldSeg.words[0]?.start_time || 0);
-                            const duration = 0.5; // Default duration
-                            updatedWords.push({
-                                word: newWords[j],
-                                start_time: startTime,
-                                end_time: startTime + duration,
-                                confidence: 1.0
-                            });
-                        }
-                    }
+    // Collect all words in order with their original timings
+    const allWords = [];
+    for (const seg of subtitleTrack.segments) {
+        if (seg.words) allWords.push(...seg.words);
+    }
 
-                    newSegments.push({
-                        words: updatedWords,
-                        style: oldSeg.style || {}
-                    });
-                }
-                // If newWords is empty, we skip this segment (effectively deleting it)
-            } else if (lineText.trim()) {
-                // New segment - create with default timing
-                const words = lineText.trim().split(/\s+/).map((w, idx) => ({
-                    word: w,
-                    start_time: idx * 0.5,
-                    end_time: (idx + 1) * 0.5,
-                    confidence: 1.0
-                }));
-                newSegments.push({
-                    words: words,
-                    style: subtitleTrack.global_style || {}
+    // Parse sentences — split by real newlines
+    const lines = rawText.split('\n');
+    const newSegments = [];
+    let wordCursor = 0;
+
+    for (const line of lines) {
+        const tokens = line.trim().split(/\s+/).filter(t => t);
+        if (!tokens.length) continue;
+
+        const segWords = [];
+        for (const token of tokens) {
+            const base = allWords[wordCursor];
+            const prevEnd = segWords.length > 0
+                ? segWords[segWords.length - 1].end_time
+                : (base?.start_time ?? wordCursor * 0.5);
+            segWords.push({
+                word: token,
+                start_time: base?.start_time ?? prevEnd,
+                end_time: base?.end_time ?? prevEnd + 0.5,
+                confidence: base?.confidence ?? 1.0,
+                marker: base?.marker ?? 'standard'
+            });
+            if (base) wordCursor++;
+        }
+        newSegments.push({ words: segWords, style: subtitleTrack.global_style ? { ...subtitleTrack.global_style } : {} });
+    }
+
+    subtitleTrack.segments = newSegments;
+}
+
+/** Re-segment using words_per_line, preserving timings. */
+function resegmentByWords(rawText) {
+    if (!subtitleTrack) return;
+
+    const allWords = [];
+    for (const seg of subtitleTrack.segments) {
+        if (seg.words) allWords.push(...seg.words);
+    }
+
+    const lines = rawText.split('\n');
+    const newSegments = [];
+    let wordCursor = 0;
+
+    for (let i = 0; i < Math.max(lines.length, subtitleTrack.segments.length); i++) {
+        const oldSeg = subtitleTrack.segments[i];
+        const lineText = lines[i] || '';
+        const newWords = lineText.trim().split(/\s+/).filter(w => w);
+        const updatedWords = [];
+
+        if (newWords.length > 0 && oldSeg?.words?.length > 0) {
+            for (let j = 0; j < newWords.length; j++) {
+                const oldWord = oldSeg.words[j];
+                const lastEnd = updatedWords.length > 0 ? updatedWords[updatedWords.length - 1].end_time : (oldSeg.words[0]?.start_time ?? 0);
+                updatedWords.push({
+                    word: newWords[j],
+                    start_time: oldWord?.start_time ?? lastEnd,
+                    end_time: oldWord?.end_time ?? lastEnd + 0.5,
+                    confidence: oldWord?.confidence ?? 1.0,
+                    marker: oldWord?.marker ?? 'standard'
                 });
+            }
+            newSegments.push({ words: updatedWords, style: oldSeg.style || {} });
+        } else if (lineText.trim()) {
+            const words = lineText.trim().split(/\s+/).map((w, idx) => ({
+                word: w,
+                start_time: idx * 0.5,
+                end_time: (idx + 1) * 0.5,
+                confidence: 1.0,
+                marker: 'standard'
+            }));
+            newSegments.push({ words, style: subtitleTrack.global_style ? { ...subtitleTrack.global_style } : {} });
+        }
+    }
+
+    subtitleTrack.segments = newSegments;
+}
+
+/** Sentence mode toggle. */
+function initSentenceMode() {
+    const chk = document.getElementById('sentence-mode-toggle');
+    if (!chk) return;
+
+    chk.addEventListener('change', () => {
+        if (!subtitleTrack) return;
+        subtitleTrack.sentence_mode = chk.checked;
+
+        // Enable/disable words-per-line control
+        const wplEl = document.getElementById('global-wpl');
+        const wplWrap = document.getElementById('wpl-wrap');
+        if (wplEl) wplEl.disabled = chk.checked;
+        if (wplWrap) wplWrap.classList.toggle('opacity-40', chk.checked);
+
+        // Immediately re-segment using current fulltext content
+        const textarea = document.getElementById('fulltext-area');
+        if (textarea) {
+            if (chk.checked) {
+                resegmentBySentence(textarea.value);
+            } else {
+                resegmentByWords(textarea.value);
             }
         }
 
-        // Update subtitle track
-        subtitleTrack.segments = newSegments;
-
-        // Update UI
-        populateSegments(newSegments);
+        populateSegments(subtitleTrack.segments);
         preview?.setTrack(subtitleTrack);
         timeline?.setData(subtitleTrack, project.video_duration, project.id);
-
-        // Auto-save
         autoSave();
     });
 }
@@ -748,6 +745,19 @@ function applyTrackToControls(track) {
     setVal('global-wpl', track.words_per_line || 4);
     setText('global-wpl-val', track.words_per_line || 4);
 
+    // Text box width
+    const tbw = Math.round((track.text_box_width ?? 0.8) * 100);
+    setVal('global-text-box-width', tbw);
+    setText('global-text-box-width-val', `${tbw}%`);
+
+    // Sentence mode
+    const smChk = document.getElementById('sentence-mode-toggle');
+    if (smChk) smChk.checked = !!track.sentence_mode;
+    const wplEl = document.getElementById('global-wpl');
+    const wplWrap = document.getElementById('wpl-wrap');
+    if (wplEl) wplEl.disabled = !!track.sentence_mode;
+    if (wplWrap) wplWrap.classList.toggle('opacity-40', !!track.sentence_mode);
+
     // Animation
     setVal('global-animation', track.animation_type || 'none');
     setVal('global-anim-duration', track.animation_duration || 0.3);
@@ -832,12 +842,10 @@ function initTabSwitching() {
 // ── Presets / Templates ──────────────────────────────────────────────────────
 
 async function loadPresets() {
-    // Load templates into all template panels
     const templatePanels = [
         document.getElementById('all-templates-panel'),
-        document.getElementById('specials-templates-panel'),
         document.getElementById('presets-templates-panel')
-    ].filter(p => p !== null);  // Filter out null panels
+    ].filter(Boolean);
 
     if (templatePanels.length === 0) {
         console.warn('[loadPresets] No template panels found');
@@ -847,52 +855,79 @@ async function loadPresets() {
     try {
         const presets = await getPresets();
         if (!presets.length) {
-            templatePanels.forEach(panel => {
-                panel.innerHTML = '<p class="text-sm text-slate-400">No presets available.</p>';
-            });
+            templatePanels.forEach(p => { p.innerHTML = '<p class="text-sm text-slate-400">No presets available.</p>'; });
             return;
         }
 
-        const templateHtml = presets.map((preset, idx) => `
+        const buildHtml = (preset, idx) => {
+            const ss = preset.standard_style || preset.style || {};
+            return `
             <div class="preset-card p-3 rounded-lg border border-white/10 bg-white/5 cursor-pointer hover:border-primary/30 transition-all" data-idx="${idx}">
                 <div class="text-sm font-bold text-white mb-1">${escapeHtml(preset.name)}</div>
-                <div class="text-xs text-slate-400">${escapeHtml(preset.description || '')}</div>
-                <div class="mt-2 text-lg font-bold" style="color: ${preset.style?.text_color || '#fff'}; text-shadow: 1px 1px 2px ${preset.style?.outline_color || '#000'};">
+                <div class="text-xs text-slate-400 mb-2">${escapeHtml(preset.description || '')}</div>
+                <div class="text-base font-bold" style="color: ${ss.text_color || '#fff'}; text-shadow: 1px 1px 2px ${ss.outline_color || '#000'};">
                     Sample सैम्पल
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        };
 
         templatePanels.forEach(panel => {
-            panel.innerHTML = templateHtml;
-
+            panel.innerHTML = presets.map(buildHtml).join('');
             panel.querySelectorAll('.preset-card').forEach(card => {
                 card.addEventListener('click', () => {
-                    const idx = parseInt(card.dataset.idx);
-                    const preset = presets[idx];
-                    if (preset.style && subtitleTrack) {
-                        // Apply preset style
-                        subtitleTrack.global_style = { ...subtitleTrack.global_style, ...preset.style };
-                        if (subtitleTrack.segments) {
-                            for (const seg of subtitleTrack.segments) {
-                                if (seg.style) {
-                                    seg.style = { ...seg.style, ...preset.style };
-                                }
-                            }
+                    const preset = presets[parseInt(card.dataset.idx)];
+                    if (!preset || !subtitleTrack) return;
+
+                    const ss = preset.standard_style || preset.style || {};
+                    const hs = preset.highlight_style || null;
+                    const sps = preset.spotlight_style || null;
+
+                    // Apply standard style globally
+                    subtitleTrack.global_style = { ...subtitleTrack.global_style, ...ss };
+                    if (subtitleTrack.segments) {
+                        for (const seg of subtitleTrack.segments) {
+                            seg.style = { ...seg.style, ...ss };
                         }
-                        preview?.setTrack(subtitleTrack);
-                        applyTrackToControls(subtitleTrack);
-                        autoSave();
-                        showToast(`Applied "${preset.name}" style`);
                     }
+                    if (hs) subtitleTrack.highlight_style = { ...subtitleTrack.highlight_style, ...hs };
+                    if (sps) subtitleTrack.spotlight_style = { ...subtitleTrack.spotlight_style, ...sps };
+
+                    preview?.setTrack(subtitleTrack);
+                    applyTrackToControls(subtitleTrack);
+                    autoSave();
+                    showToast(`Applied "${preset.name}"`);
                 });
             });
         });
+
+        // Save-my-preset button
+        const saveBtn = document.getElementById('btn-save-preset');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async () => {
+                if (!subtitleTrack) return;
+                const name = prompt('Enter preset name:');
+                if (!name?.trim()) return;
+                try {
+                    await fetch('/api/presets', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: name.trim(),
+                            standard_style: subtitleTrack.global_style,
+                            highlight_style: subtitleTrack.highlight_style,
+                            spotlight_style: subtitleTrack.spotlight_style
+                        })
+                    });
+                    showToast(`Preset "${name.trim()}" saved!`);
+                    loadPresets();
+                } catch (e) {
+                    showToast('Failed to save preset', 'error');
+                }
+            });
+        }
     } catch (err) {
         console.error('Failed to load presets:', err);
-        templatePanels.forEach(panel => {
-            panel.innerHTML = '<p class="text-sm text-red-400">Error loading presets.</p>';
-        });
+        templatePanels.forEach(p => { p.innerHTML = '<p class="text-sm text-red-400">Error loading presets.</p>'; });
     }
 }
 
@@ -968,22 +1003,21 @@ function initTranscription() {
     const btnTranscribe = document.getElementById('btn-transcribe');
     const btnCancel = document.getElementById('transcribe-cancel');
     const btnStart = document.getElementById('transcribe-start');
+    if (!modal || !btnTranscribe || !btnCancel || !btnStart) return;
 
     // Words per line slider
     const wplSlider = document.getElementById('transcribe-wpl');
     const wplVal = document.getElementById('transcribe-wpl-val');
     if (wplSlider && wplVal) {
-        wplSlider.addEventListener('input', () => {
-            wplVal.textContent = wplSlider.value;
-        });
+        wplSlider.addEventListener('input', () => { wplVal.textContent = wplSlider.value; });
     }
 
     btnTranscribe.addEventListener('click', () => showModal(modal));
     btnCancel.addEventListener('click', () => hideModal(modal));
 
     btnStart.addEventListener('click', async () => {
-        const engine = document.getElementById('transcribe-engine')?.value || 'vosk';
-        const model = (engine === 'whisper') ? (document.getElementById('transcribe-model')?.value || null) : null;
+        // Whisper only — model selector specifies which Whisper model
+        const model = document.getElementById('transcribe-model')?.value || 'whisper-large-v3-turbo';
         const language = project?.language || 'hi';
         const wordsPerLine = parseInt(document.getElementById('transcribe-wpl')?.value || '4');
 
@@ -996,25 +1030,26 @@ function initTranscription() {
         buttons.classList.add('hidden');
 
         try {
-            const { task_id } = await startTranscription(project.id, { engine, language, model, words_per_line: wordsPerLine });
+            const { task_id } = await startTranscription(project.id, {
+                engine: 'whisper',
+                language,
+                model,
+                words_per_line: wordsPerLine
+            });
 
             watchProgress(task_id,
                 (data) => {
-                    console.log('[Transcription] Progress:', data);
                     barEl.style.width = `${data.percent}%`;
                     statusEl.textContent = data.message;
                 },
                 (data) => {
-                    console.log('[Transcription] Complete:', data);
                     progressWrap.classList.add('hidden');
                     buttons.classList.remove('hidden');
                     hideModal(modal);
                     showToast('Transcription complete!');
-                    // Reload project to get subtitle data (with small delay for DB commit)
                     setTimeout(() => loadProject(project.id), 500);
                 },
                 (error) => {
-                    console.error('[Transcription] Error:', error);
                     progressWrap.classList.add('hidden');
                     buttons.classList.remove('hidden');
                     showToast(`Transcription error: ${error}`, 'error');
@@ -1148,11 +1183,13 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-// ── Special Words & Groups System ─────────────────────────────────────────────
+// ── Word Selection & Marker System ────────────────────────────────────────────
 
 // Track selected words: array of {segmentIndex, wordIndex}
 let selectedWords = [];
-let currentGroupId = null;  // Currently selected group
+
+// Currently active marker tab: 'highlight' | 'spotlight'
+let currentMarkerTab = 'highlight';
 
 // Initialize the new styling system
 function initStylingSystem() {
@@ -1160,12 +1197,12 @@ function initStylingSystem() {
     initMainTabSwitching();
     initSubTabSwitching();
     initContextMenu();
-    initSpecialStyleControls();
+    initMarkerStyleControls();
     initGlobalStyleControls();
     initDeselectOnEscape();
 }
 
-// Main tab switching (Style / Video / Presets)
+// Main tab switching (Standard / Highlight / Spotlight → maps to Style/Video/Presets sections)
 function initMainTabSwitching() {
     document.querySelectorAll('[data-main-tab]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1173,26 +1210,32 @@ function initMainTabSwitching() {
             btn.classList.add('active');
 
             const tab = btn.dataset.mainTab;
-            document.getElementById('style-section').classList.toggle('hidden', tab !== 'style');
-            document.getElementById('video-section').classList.toggle('hidden', tab !== 'video');
-            document.getElementById('presets-section').classList.toggle('hidden', tab !== 'presets');
+            document.getElementById('style-section')?.classList.toggle('hidden', tab !== 'style');
+            document.getElementById('video-section')?.classList.toggle('hidden', tab !== 'video');
+            document.getElementById('presets-section')?.classList.toggle('hidden', tab !== 'presets');
         });
     });
 }
 
-// Sub tab switching (All / Specials)
+// Sub tab switching: Standard / Highlight / Spotlight
 function initSubTabSwitching() {
-    document.querySelectorAll('[data-sub-tab]').forEach(btn => {
+    // Main marker sub tabs: Standard / Highlight / Spotlight
+    document.querySelectorAll('[data-main-marker-tab]').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('[data-sub-tab]').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('[data-main-marker-tab]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
 
-            const tab = btn.dataset.subTab;
-            document.getElementById('all-subsection').classList.toggle('hidden', tab !== 'all');
-            document.getElementById('specials-subsection').classList.toggle('hidden', tab !== 'specials');
-
-            // Update specials panel based on selection
-            updateSpecialsPanel();
+            const tab = btn.dataset.mainMarkerTab;
+            if (tab === 'standard') {
+                document.getElementById('all-subsection')?.classList.remove('hidden');
+                document.getElementById('specials-subsection')?.classList.add('hidden');
+            } else {
+                document.getElementById('all-subsection')?.classList.add('hidden');
+                document.getElementById('specials-subsection')?.classList.remove('hidden');
+                currentMarkerTab = tab;
+                loadMarkerStyleToControls(tab);
+            }
+            updateMarkersPanel();
         });
     });
 
@@ -1203,22 +1246,9 @@ function initSubTabSwitching() {
             btn.classList.add('active');
 
             const tab = btn.dataset.allTab;
-            document.getElementById('all-text-panel').classList.toggle('hidden', tab !== 'text');
-            document.getElementById('all-templates-panel').classList.toggle('hidden', tab !== 'templates');
-            document.getElementById('all-animation-panel').classList.toggle('hidden', tab !== 'animation');
-        });
-    });
-
-    // Specials subsection tabs
-    document.querySelectorAll('[data-special-tab]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('[data-special-tab]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            const tab = btn.dataset.specialTab;
-            document.getElementById('specials-text-panel').classList.toggle('hidden', tab !== 'text');
-            document.getElementById('specials-templates-panel').classList.toggle('hidden', tab !== 'templates');
-            document.getElementById('specials-animation-panel').classList.toggle('hidden', tab !== 'animation');
+            document.getElementById('all-text-panel')?.classList.toggle('hidden', tab !== 'text');
+            document.getElementById('all-templates-panel')?.classList.toggle('hidden', tab !== 'templates');
+            document.getElementById('all-animation-panel')?.classList.toggle('hidden', tab !== 'animation');
         });
     });
 
@@ -1229,64 +1259,145 @@ function initSubTabSwitching() {
             btn.classList.add('active');
 
             const tab = btn.dataset.presetTab;
-            document.getElementById('presets-panel').classList.toggle('hidden', tab !== 'presets');
-            document.getElementById('presets-templates-panel').classList.toggle('hidden', tab !== 'templates');
+            document.getElementById('presets-panel')?.classList.toggle('hidden', tab !== 'presets');
+            document.getElementById('presets-templates-panel')?.classList.toggle('hidden', tab !== 'templates');
         });
     });
 }
 
-// Update the specials panel based on current selection
-function updateSpecialsPanel() {
-    const emptyState = document.getElementById('specials-empty');
-    const textPanel = document.getElementById('specials-text-panel');
-    const templatesPanel = document.getElementById('specials-templates-panel');
-    const animationPanel = document.getElementById('specials-animation-panel');
+/**
+ * Programmatically switch to a marker tab ('standard' | 'highlight' | 'spotlight').
+ * Keeps the UI and state in sync.
+ */
+function switchToMarkerTab(tab) {
+    // Activate the correct sub-tab button
+    document.querySelectorAll('[data-main-marker-tab]').forEach(b => b.classList.remove('active'));
+    const targetBtn = document.querySelector(`[data-main-marker-tab="${tab}"]`);
+    if (targetBtn) targetBtn.classList.add('active');
 
-    if (selectedWords.length === 0) {
-        emptyState.classList.remove('hidden');
-        textPanel.classList.add('hidden');
-        templatesPanel.classList.add('hidden');
-        animationPanel.classList.add('hidden');
+    // Also make sure we're on the Style main tab
+    document.querySelectorAll('[data-main-tab]').forEach(b => b.classList.remove('active'));
+    const styleBtn = document.querySelector('[data-main-tab="style"]');
+    if (styleBtn) styleBtn.classList.add('active');
+    document.getElementById('style-section')?.classList.remove('hidden');
+    document.getElementById('video-section')?.classList.add('hidden');
+    document.getElementById('presets-section')?.classList.add('hidden');
+
+    if (tab === 'standard') {
+        document.getElementById('all-subsection')?.classList.remove('hidden');
+        document.getElementById('specials-subsection')?.classList.add('hidden');
     } else {
-        emptyState.classList.add('hidden');
-        // Show the active tab panel
-        const activeTab = document.querySelector('[data-special-tab].active')?.dataset.specialTab || 'text';
-        textPanel.classList.toggle('hidden', activeTab !== 'text');
-        templatesPanel.classList.toggle('hidden', activeTab !== 'templates');
-        animationPanel.classList.toggle('hidden', activeTab !== 'animation');
-
-        // Load the style for the selected words
-        loadSpecialStyle();
+        document.getElementById('all-subsection')?.classList.add('hidden');
+        document.getElementById('specials-subsection')?.classList.remove('hidden');
+        currentMarkerTab = tab;
+        loadMarkerStyleToControls(tab);
     }
 }
 
-// Load special style into the controls
-function loadSpecialStyle() {
-    if (!subtitleTrack || selectedWords.length === 0) return;
+// Update the markers/specials side-panel based on current selection
+function updateMarkersPanel() {
+    // Update word chips for the active marker tab (highlight or spotlight)
+    const chipsContainer = document.getElementById('specials-word-chips');
+    const editingLabel = document.getElementById('specials-editing-label');
+    const applyAllLabel = document.getElementById('specials-apply-all-label');
+    const markerName = currentMarkerTab === 'spotlight' ? 'Spotlight' : 'Highlight';
 
-    // Get the first selected word's style
-    const firstWord = getSelectedWord();
-    if (!firstWord) return;
+    if (applyAllLabel) applyAllLabel.textContent = `Apply for all ${markerName.toLowerCase()} words`;
 
-    // Check if word has individual style override
-    let style = firstWord.style_override;
-
-    // If no individual style, check if it's in a group
-    if (!style && firstWord.group_id) {
-        style = subtitleTrack.get_group_style(firstWord.group_id);
+    // Collect all words with the current marker
+    const markerWords = [];
+    if (subtitleTrack?.segments) {
+        subtitleTrack.segments.forEach((seg, segIdx) => {
+            (seg.words || []).forEach((word, wordIdx) => {
+                if ((word.marker || 'standard') === currentMarkerTab) {
+                    markerWords.push({ segIdx, wordIdx, word: word.word });
+                }
+            });
+        });
     }
 
-    // If still no style, use global style as default
-    if (!style) {
-        style = subtitleTrack.global_style;
+    if (chipsContainer) {
+        if (markerWords.length === 0) {
+            chipsContainer.innerHTML = '<span class="text-xs text-slate-400 italic">No words assigned yet</span>';
+        } else {
+            const chipColor = currentMarkerTab === 'spotlight'
+                ? 'bg-purple-900/30 border-purple-500/40 text-purple-200'
+                : 'bg-amber-900/30 border-amber-500/40 text-amber-200';
+            chipsContainer.innerHTML = markerWords.map(mw =>
+                `<span class="text-[11px] px-1.5 py-0.5 rounded border ${chipColor} cursor-pointer hover:opacity-80"
+                       data-seg="${mw.segIdx}" data-word="${mw.wordIdx}">${escapeHtml(mw.word)}</span>`
+            ).join('');
+            // Click chip → select that word + seek
+            chipsContainer.querySelectorAll('[data-seg]').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const si = parseInt(chip.dataset.seg);
+                    const wi = parseInt(chip.dataset.word);
+                    selectedWords = [{ segmentIndex: si, wordIndex: wi }];
+                    updateWordSelectionUI();
+                    updateEditingIndicators();
+                    const w = subtitleTrack.segments[si]?.words?.[wi];
+                    if (w) document.getElementById('video-player').currentTime = w.start_time;
+                });
+            });
+        }
     }
 
-    if (!style) return;
+    // Update editing indicators
+    updateEditingIndicators();
+}
+
+/**
+ * Update the "Editing: ..." label on all three tabs.
+ */
+function updateEditingIndicators() {
+    // Standard tab indicator
+    const stdLabel = document.getElementById('standard-editing-label');
+    if (stdLabel) {
+        if (selectedWords.length > 0) {
+            const firstWord = getSelectedWord();
+            if (firstWord && (firstWord.marker || 'standard') === 'standard') {
+                stdLabel.textContent = `"${firstWord.word}" (segment ${selectedWords[0].segmentIndex + 1})`;
+            } else {
+                stdLabel.textContent = 'All standard words';
+            }
+        } else {
+            stdLabel.textContent = 'All standard words';
+        }
+    }
+
+    // Specials (Highlight / Spotlight) tab indicator
+    const specLabel = document.getElementById('specials-editing-label');
+    if (specLabel) {
+        const markerName = currentMarkerTab === 'spotlight' ? 'Spotlight' : 'Highlight';
+        if (selectedWords.length > 0) {
+            const firstWord = getSelectedWord();
+            if (firstWord && (firstWord.marker || 'standard') === currentMarkerTab) {
+                specLabel.textContent = `"${firstWord.word}" (${markerName})`;
+            } else {
+                specLabel.textContent = `All ${markerName.toLowerCase()} words`;
+            }
+        } else {
+            specLabel.textContent = `All ${markerName.toLowerCase()} words`;
+        }
+    }
+}
+
+// Keep backward compat alias
+const updateSpecialsPanel = updateMarkersPanel;
+
+/**
+ * Load a marker-type style object (highlight / spotlight) into the
+ * special-* controls:
+ */
+function loadMarkerStyleToControls(markerTab) {
+    if (!subtitleTrack) return;
+    const style = markerTab === 'spotlight'
+        ? (subtitleTrack.spotlight_style || subtitleTrack.global_style || {})
+        : (subtitleTrack.highlight_style || subtitleTrack.global_style || {});
 
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
     const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
-    // §1 Font
     setVal('special-font', style.font_family || 'Noto Sans Devanagari');
     setVal('special-font-size', style.font_size || 48);
     setText('special-font-size-val', style.font_size || 48);
@@ -1295,7 +1406,6 @@ function loadSpecialStyle() {
     setVal('special-font-style', style.font_style || 'normal');
     setVal('special-text-transform', style.text_transform || 'none');
 
-    // §2 Fill
     setVal('special-fill-type', style.fill_type || 'solid');
     setVal('special-text-color', style.text_color || '#FFFFFF');
     setVal('special-grad-color1', style.gradient_color1 || '#FFFFFF');
@@ -1305,18 +1415,16 @@ function loadSpecialStyle() {
     setVal('special-grad-type', style.gradient_type || 'linear');
     toggleFillControls('special', style.fill_type || 'solid');
 
-    // §3 Stroke
     const strokeCheck = document.getElementById('special-stroke-enabled');
     if (strokeCheck) strokeCheck.checked = style.stroke_enabled !== false;
     setVal('special-outline-color', style.outline_color || '#000000');
-    setVal('special-outline-width', style.outline_width || 2);
-    setText('special-outline-w-val', style.outline_width || 2);
+    setVal('special-outline-width', style.outline_width ?? 2);
+    setText('special-outline-w-val', style.outline_width ?? 2);
     toggleStrokeControls('special', style.stroke_enabled !== false);
 
-    // §4 Shadow
     const shadowCheck = document.getElementById('special-shadow-enabled');
     if (shadowCheck) shadowCheck.checked = style.shadow_enabled !== false;
-    setVal('special-shadow-color', (style.shadow_color || '#000000').replace(/^#../, '#'));
+    setVal('special-shadow-color', (style.shadow_color || '#000000'));
     setVal('special-shadow-blur', style.shadow_blur || 0);
     setText('special-shadow-blur-val', style.shadow_blur || 0);
     setVal('special-shadow-ox', style.shadow_offset_x ?? 2);
@@ -1325,25 +1433,23 @@ function loadSpecialStyle() {
     setText('special-shadow-oy-val', style.shadow_offset_y ?? 2);
     toggleShadowControls('special', style.shadow_enabled !== false);
 
-    // §5 Spacing
     setVal('special-letter-spacing', style.letter_spacing || 0);
     setText('special-letter-spacing-val', style.letter_spacing || 0);
-    setVal('special-word-spacing', style.word_spacing || 0);
-    setText('special-word-spacing-val', style.word_spacing || 0);
     setVal('special-line-height', style.line_height || 1.2);
     setText('special-line-height-val', style.line_height || 1.2);
 
-    // §6 Opacity
     setVal('special-opacity', Math.round((style.text_opacity ?? 1) * 100));
     setText('special-opacity-val', Math.round((style.text_opacity ?? 1) * 100));
 }
+
+// Kept for back-compat (called by old path but not needed with new marker system)
+function loadSpecialStyle() { loadMarkerStyleToControls(currentMarkerTab); }
 
 // Get the first selected word object
 function getSelectedWord() {
     if (selectedWords.length === 0 || !subtitleTrack) return null;
     const { segmentIndex, wordIndex } = selectedWords[0];
-    const segment = subtitleTrack.segments[segmentIndex];
-    return segment?.words[wordIndex];
+    return subtitleTrack.segments[segmentIndex]?.words?.[wordIndex] ?? null;
 }
 
 // Initialize word selection in Segments panel
@@ -1356,8 +1462,6 @@ function initWordSelection() {
 function handleWordClick(wordEl, isMultiSelect) {
     const segmentIndex = parseInt(wordEl.dataset.segmentIdx);
     const wordIndex = parseInt(wordEl.dataset.wordIdx);
-
-    console.log('[handleWordClick] segmentIndex:', segmentIndex, 'wordIndex:', wordIndex, 'isMultiSelect:', isMultiSelect);
 
     if (!isMultiSelect) {
         // Single select - clear previous selection
@@ -1374,8 +1478,17 @@ function handleWordClick(wordEl, isMultiSelect) {
         }
     }
 
-    console.log('[handleWordClick] selectedWords:', selectedWords);
     updateWordSelectionUI();
+
+    // Auto-switch to the correct marker tab based on the word's marker
+    if (selectedWords.length > 0) {
+        const word = subtitleTrack?.segments[segmentIndex]?.words?.[wordIndex];
+        if (word) {
+            const marker = word.marker || 'standard';
+            switchToMarkerTab(marker);
+        }
+    }
+
     updateSpecialsPanel();
 }
 
@@ -1402,70 +1515,51 @@ function updateWordSelectionUI() {
     }
 }
 
-// Context menu for words
+// Context menu for words — new marker system
 function initContextMenu() {
-    const menu = document.getElementById('word-context-menu');
+    const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', () => { fn(); hideContextMenu(); }); };
 
-    // Mark as Special
-    document.getElementById('ctx-mark-special').addEventListener('click', () => {
-        markWordsAsSpecial();
-        hideContextMenu();
-    });
+    bind('ctx-mark-highlight',  () => setWordMarker('highlight'));
+    bind('ctx-mark-spotlight',  () => setWordMarker('spotlight'));
+    bind('ctx-mark-standard',   () => setWordMarker('standard'));
+    bind('ctx-make-segment',    () => makeWordSegment());
+    // Legacy IDs kept so old HTML still works without a full rebuild
+    bind('ctx-mark-special',    () => setWordMarker('highlight'));
+    bind('ctx-unmark',          () => setWordMarker('standard'));
+    bind('ctx-create-group',    () => setWordMarker('highlight'));
+    bind('ctx-remove-group',    () => setWordMarker('standard'));
 
-    // Unmark
-    document.getElementById('ctx-unmark').addEventListener('click', () => {
-        unmarkWords();
-        hideContextMenu();
-    });
-
-    // Create Group
-    document.getElementById('ctx-create-group').addEventListener('click', () => {
-        createGroup();
-        hideContextMenu();
-    });
-
-    // Remove from Group
-    document.getElementById('ctx-remove-group').addEventListener('click', () => {
-        removeFromGroup();
-        hideContextMenu();
-    });
-
-    // Hide menu on click elsewhere
-    document.addEventListener('click', () => {
-        hideContextMenu();
-    });
+    document.addEventListener('click', hideContextMenu);
 }
 
 function showContextMenu(x, y, wordEl) {
     const menu = document.getElementById('word-context-menu');
+    if (!menu) return;
+
     const segmentIndex = parseInt(wordEl.dataset.segmentIdx);
     const wordIndex = parseInt(wordEl.dataset.wordIdx);
 
-    // Check if this word is selected
-    const isSelected = selectedWords.some(
-        w => w.segmentIndex === segmentIndex && w.wordIndex === wordIndex
-    );
-
-    // If not selected, select it first
-    if (!isSelected) {
+    // Auto-select if not already selected
+    if (!selectedWords.some(w => w.segmentIndex === segmentIndex && w.wordIndex === wordIndex)) {
         selectedWords = [{ segmentIndex, wordIndex }];
         updateWordSelectionUI();
     }
 
-    // Get the first selected word
     const firstWord = getSelectedWord();
     if (!firstWord) return;
 
-    // Update menu items based on state
-    const isSpecial = firstWord.is_special;
-    const hasGroup = !!firstWord.group_id;
+    const marker = firstWord.marker || 'standard';
+    const show = (id, visible) => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !visible); };
+    show('ctx-mark-highlight', marker !== 'highlight');
+    show('ctx-mark-spotlight', marker !== 'spotlight');
+    show('ctx-mark-standard',  marker !== 'standard');
+    show('ctx-make-segment',   true);
+    // Legacy IDs
+    show('ctx-mark-special',   marker === 'standard');
+    show('ctx-unmark',         marker !== 'standard');
+    show('ctx-create-group',   false); // deprecated
+    show('ctx-remove-group',   false); // deprecated
 
-    document.getElementById('ctx-mark-special').classList.toggle('hidden', isSpecial);
-    document.getElementById('ctx-unmark').classList.toggle('hidden', !isSpecial);
-    document.getElementById('ctx-create-group').classList.toggle('hidden', selectedWords.length < 2 || hasGroup);
-    document.getElementById('ctx-remove-group').classList.toggle('hidden', !hasGroup);
-
-    // Position menu
     menu.style.left = `${x}px`;
     menu.style.top = `${y}px`;
     menu.classList.remove('hidden');
@@ -1475,292 +1569,235 @@ function hideContextMenu() {
     document.getElementById('word-context-menu').classList.add('hidden');
 }
 
-// Mark selected words as special
-function markWordsAsSpecial() {
+/**
+ * Apply a marker ('standard' | 'highlight' | 'spotlight') to all selected words.
+ * Keeps sentence boundaries: a spotlighted word inside a sentence still
+ * belongs to that sentence segment — the exporter/preview read the marker.
+ */
+function setWordMarker(marker) {
     if (!subtitleTrack || selectedWords.length === 0) return;
 
     selectedWords.forEach(({ segmentIndex, wordIndex }) => {
-        const segment = subtitleTrack.segments[segmentIndex];
-        if (segment && segment.words[wordIndex]) {
-            const word = segment.words[wordIndex];
-            word.is_special = true;
-            // Inherit current global style
-            word.style_override = JSON.parse(JSON.stringify(subtitleTrack.global_style || {}));
-        }
-    });
-
-    // Update timeline data to reflect special words
-    if (timeline) {
-        timeline.segments.text = subtitleTrack.segments;
-        timeline.draw();
-    }
-
-    // Update preview to reflect special words
-    preview?.setTrack(subtitleTrack);
-
-    updateWordSelectionUI();
-    autoSave();
-    showToast('Marked as Special');
-}
-
-// Unmark selected words
-function unmarkWords() {
-    if (!subtitleTrack || selectedWords.length === 0) return;
-
-    selectedWords.forEach(({ segmentIndex, wordIndex }) => {
-        const segment = subtitleTrack.segments[segmentIndex];
-        if (segment && segment.words[wordIndex]) {
-            const word = segment.words[wordIndex];
-            word.is_special = false;
-            word.group_id = null;
+        const seg = subtitleTrack.segments[segmentIndex];
+        if (seg?.words?.[wordIndex]) {
+            const word = seg.words[wordIndex];
+            word.marker = marker;
+            // Clear legacy fields
+            word.is_special = (marker !== 'standard');
             word.style_override = null;
         }
     });
 
-    // Clean up empty groups
-    cleanupEmptyGroups();
-
-    // Update timeline data to reflect changes
-    if (timeline) {
-        timeline.segments.text = subtitleTrack.segments;
-        timeline.draw();
-    }
-
-    // Update preview to reflect changes
+    timeline?.draw();
     preview?.setTrack(subtitleTrack);
-
     updateWordSelectionUI();
-    updateSpecialsPanel();
     autoSave();
-    showToast('Unmarked');
+    showToast(`Marked as ${marker}`);
 }
 
-// Create a group from selected words
-function createGroup() {
+/**
+ * Split the current segment around the selected word, 
+ * turning the word into a 1-word segment.
+ */
+function makeWordSegment() {
     if (!subtitleTrack || selectedWords.length === 0) return;
 
-    // Create new group with current global style
-    const groupId = subtitleTrack.create_group();
-    const group = subtitleTrack.special_groups[groupId];
-
-    // Add all selected words to the group
-    selectedWords.forEach(({ segmentIndex, wordIndex }) => {
-        const segment = subtitleTrack.segments[segmentIndex];
-        if (segment && segment.words[wordIndex]) {
-            const word = segment.words[wordIndex];
-            word.is_special = true;
-            word.group_id = groupId;
-            word.style_override = null;  // Use group style
-        }
+    // Sort from back to front so indices don't shift as we insert
+    const sorted = [...selectedWords].sort((a, b) => {
+        if (a.segmentIndex !== b.segmentIndex) return b.segmentIndex - a.segmentIndex;
+        return b.wordIndex - a.wordIndex;
     });
 
-    // Update timeline data to reflect special words
-    if (timeline) {
-        timeline.segments.text = subtitleTrack.segments;
-        timeline.draw();
+    let modified = false;
+
+    for (const {segmentIndex, wordIndex} of sorted) {
+        const seg = subtitleTrack.segments[segmentIndex];
+        if (!seg || !seg.words || seg.words.length <= 1) continue; // Already a 1-word segment
+
+        const word = seg.words[wordIndex];
+        const beforeWords = seg.words.slice(0, wordIndex);
+        const afterWords = seg.words.slice(wordIndex + 1);
+
+        const newSegments = [];
+        
+        if (beforeWords.length > 0) {
+            newSegments.push({
+                start: beforeWords[0].start,
+                end: beforeWords[beforeWords.length - 1].end,
+                text: beforeWords.map(w => w.word).join(' '),
+                words: beforeWords
+            });
+        }
+        
+        newSegments.push({
+            start: word.start,
+            end: word.end,
+            text: word.word,
+            words: [word]
+        });
+
+        if (afterWords.length > 0) {
+            newSegments.push({
+                start: afterWords[0].start,
+                end: afterWords[afterWords.length - 1].end,
+                text: afterWords.map(w => w.word).join(' '),
+                words: afterWords
+            });
+        }
+
+        subtitleTrack.segments.splice(segmentIndex, 1, ...newSegments);
+        modified = true;
     }
 
-    // Update preview to reflect special words
-    preview?.setTrack(subtitleTrack);
-
-    currentGroupId = groupId;
-    updateWordSelectionUI();
-    autoSave();
-    showToast('Group created');
+    if (modified) {
+        selectedWords = [];
+        populateSegments(); // Rebuild the segments UI
+        timeline?.setTrack(subtitleTrack);
+        preview?.setTrack(subtitleTrack);
+        autoSave();
+        showToast("Words split into individual segments");
+    }
 }
 
-// Remove selected words from their group
-function removeFromGroup() {
+/**
+ * Split the current segment around the selected word, 
+ * turning the word into a 1-word segment.
+ */
+function makeWordSegment() {
     if (!subtitleTrack || selectedWords.length === 0) return;
 
-    selectedWords.forEach(({ segmentIndex, wordIndex }) => {
-        const segment = subtitleTrack.segments[segmentIndex];
-        if (segment && segment.words[wordIndex]) {
-            const word = segment.words[wordIndex];
-            word.group_id = null;
-            word.is_special = false;
-            word.style_override = null;
-        }
+    // Sort from back to front so indices don't shift as we insert
+    const sorted = [...selectedWords].sort((a, b) => {
+        if (a.segmentIndex !== b.segmentIndex) return b.segmentIndex - a.segmentIndex;
+        return b.wordIndex - a.wordIndex;
     });
 
-    // Clean up empty groups
-    cleanupEmptyGroups();
+    let modified = false;
 
-    // Update timeline data to reflect changes
-    if (timeline) {
-        timeline.segments.text = subtitleTrack.segments;
-        timeline.draw();
+    for (const {segmentIndex, wordIndex} of sorted) {
+        const seg = subtitleTrack.segments[segmentIndex];
+        if (!seg || !seg.words || seg.words.length <= 1) continue; // Already a 1-word segment
+
+        const word = seg.words[wordIndex];
+        const beforeWords = seg.words.slice(0, wordIndex);
+        const afterWords = seg.words.slice(wordIndex + 1);
+
+        const newSegments = [];
+        
+        if (beforeWords.length > 0) {
+            newSegments.push({
+                start: beforeWords[0].start_time,
+                end: beforeWords[beforeWords.length - 1].end_time,
+                text: beforeWords.map(w => w.word).join(' '),
+                words: beforeWords
+            });
+        }
+        
+        newSegments.push({
+            start: word.start_time,
+            end: word.end_time,
+            text: word.word,
+            words: [word]
+        });
+
+        if (afterWords.length > 0) {
+            newSegments.push({
+                start: afterWords[0].start_time,
+                end: afterWords[afterWords.length - 1].end_time,
+                text: afterWords.map(w => w.word).join(' '),
+                words: afterWords
+            });
+        }
+
+        subtitleTrack.segments.splice(segmentIndex, 1, ...newSegments);
+        modified = true;
     }
 
-    // Update preview to reflect changes
-    preview?.setTrack(subtitleTrack);
-
-    updateWordSelectionUI();
-    updateSpecialsPanel();
-    autoSave();
-    showToast('Removed from group');
+    if (modified) {
+        selectedWords = [];
+        populateSegments(subtitleTrack.segments);
+        timeline?.setData(subtitleTrack, project.video_duration, project.id);
+        preview?.setTrack(subtitleTrack);
+        autoSave();
+        showToast("Words split into individual segments");
+    }
 }
 
-// Clean up empty groups
-function cleanupEmptyGroups() {
+// Initialize marker style controls (Highlight / Spotlight tabs)
+function initMarkerStyleControls() {
+    const bindSpecial = (id, prop, parse) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', (e) => {
+            const raw = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+            const val = parse ? parse(raw) : raw;
+            updateMarkerStyle(prop, val);
+        });
+    };
+    const bindWithVal = (id, valId, prop, parse) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', (e) => {
+            const el2 = document.getElementById(valId);
+            if (el2) el2.textContent = e.target.value + (prop.includes('opacity') ? '' : prop.includes('angle') ? '°' : '');
+            updateMarkerStyle(prop, parse ? parse(e.target.value) : e.target.value);
+        });
+    };
+
+    bindSpecial('special-font', 'font_family', null);
+    bindWithVal('special-font-size',   'special-font-size-val',   'font_size',   parseInt);
+    bindWithVal('special-font-weight', 'special-font-weight-val', 'font_weight', parseInt);
+    bindSpecial('special-font-style',  'font_style', null);
+    bindSpecial('special-text-transform', 'text_transform', null);
+
+    const fillTypeEl = document.getElementById('special-fill-type');
+    if (fillTypeEl) fillTypeEl.addEventListener('change', (e) => { updateMarkerStyle('fill_type', e.target.value); toggleFillControls('special', e.target.value); });
+    bindSpecial('special-text-color',  'text_color', null);
+    bindSpecial('special-grad-color1', 'gradient_color1', null);
+    bindSpecial('special-grad-color2', 'gradient_color2', null);
+    bindWithVal('special-grad-angle',  'special-grad-angle-val', 'gradient_angle', parseInt);
+    bindSpecial('special-grad-type',   'gradient_type', null);
+
+    const strokeChk = document.getElementById('special-stroke-enabled');
+    if (strokeChk) strokeChk.addEventListener('change', (e) => { updateMarkerStyle('stroke_enabled', e.target.checked); toggleStrokeControls('special', e.target.checked); });
+    bindSpecial('special-outline-color', 'outline_color', null);
+    bindWithVal('special-outline-width', 'special-outline-w-val', 'outline_width', parseInt);
+
+    const shadowChk = document.getElementById('special-shadow-enabled');
+    if (shadowChk) shadowChk.addEventListener('change', (e) => { updateMarkerStyle('shadow_enabled', e.target.checked); toggleShadowControls('special', e.target.checked); });
+    bindSpecial('special-shadow-color',  'shadow_color', null);
+    bindWithVal('special-shadow-blur',   'special-shadow-blur-val', 'shadow_blur', parseInt);
+    bindWithVal('special-shadow-ox',     'special-shadow-ox-val',   'shadow_offset_x', parseInt);
+    bindWithVal('special-shadow-oy',     'special-shadow-oy-val',   'shadow_offset_y', parseInt);
+
+    bindWithVal('special-letter-spacing', 'special-letter-spacing-val', 'letter_spacing', parseFloat);
+    bindWithVal('special-line-height',    'special-line-height-val',    'line_height',    parseFloat);
+    const opacEl = document.getElementById('special-opacity');
+    if (opacEl) opacEl.addEventListener('input', (e) => {
+        const valEl = document.getElementById('special-opacity-val');
+        if (valEl) valEl.textContent = e.target.value;
+        updateMarkerStyle('text_opacity', parseInt(e.target.value) / 100);
+    });
+}
+
+/**
+ * Update the style object for the current marker tab (highlight or spotlight).
+ * Changes are stored in subtitleTrack.highlight_style / subtitleTrack.spotlight_style.
+ */
+function updateMarkerStyle(property, value) {
     if (!subtitleTrack) return;
 
-    const groupsToDelete = [];
-    for (const [groupId, group] of Object.entries(subtitleTrack.special_groups)) {
-        const members = subtitleTrack.get_group_members(groupId);
-        if (members.length === 0) {
-            groupsToDelete.push(groupId);
-        }
-    }
+    const key = currentMarkerTab === 'spotlight' ? 'spotlight_style' : 'highlight_style';
+    if (!subtitleTrack[key]) subtitleTrack[key] = {};
+    subtitleTrack[key][property] = value;
 
-    groupsToDelete.forEach(groupId => {
-        subtitleTrack.delete_group(groupId);
-    });
-}
-
-// Initialize special style controls
-function initSpecialStyleControls() {
-    // §1 Font
-    document.getElementById('special-font').addEventListener('change', (e) => {
-        updateSpecialStyle('font_family', e.target.value);
-    });
-    document.getElementById('special-font-size').addEventListener('input', (e) => {
-        document.getElementById('special-font-size-val').textContent = e.target.value;
-        updateSpecialStyle('font_size', parseInt(e.target.value));
-    });
-    document.getElementById('special-font-weight').addEventListener('input', (e) => {
-        document.getElementById('special-font-weight-val').textContent = e.target.value;
-        updateSpecialStyle('font_weight', parseInt(e.target.value));
-    });
-    document.getElementById('special-font-style').addEventListener('change', (e) => {
-        updateSpecialStyle('font_style', e.target.value);
-    });
-    document.getElementById('special-text-transform').addEventListener('change', (e) => {
-        updateSpecialStyle('text_transform', e.target.value);
-    });
-
-    // §2 Fill
-    document.getElementById('special-fill-type').addEventListener('change', (e) => {
-        updateSpecialStyle('fill_type', e.target.value);
-        toggleFillControls('special', e.target.value);
-    });
-    document.getElementById('special-text-color').addEventListener('input', (e) => {
-        updateSpecialStyle('text_color', e.target.value);
-    });
-    document.getElementById('special-grad-color1').addEventListener('input', (e) => {
-        updateSpecialStyle('gradient_color1', e.target.value);
-    });
-    document.getElementById('special-grad-color2').addEventListener('input', (e) => {
-        updateSpecialStyle('gradient_color2', e.target.value);
-    });
-    document.getElementById('special-grad-angle').addEventListener('input', (e) => {
-        document.getElementById('special-grad-angle-val').textContent = `${e.target.value}°`;
-        updateSpecialStyle('gradient_angle', parseInt(e.target.value));
-    });
-    document.getElementById('special-grad-type').addEventListener('change', (e) => {
-        updateSpecialStyle('gradient_type', e.target.value);
-    });
-
-    // §3 Stroke
-    document.getElementById('special-stroke-enabled').addEventListener('change', (e) => {
-        updateSpecialStyle('stroke_enabled', e.target.checked);
-        toggleStrokeControls('special', e.target.checked);
-    });
-    document.getElementById('special-outline-color').addEventListener('input', (e) => {
-        updateSpecialStyle('outline_color', e.target.value);
-    });
-    document.getElementById('special-outline-width').addEventListener('input', (e) => {
-        document.getElementById('special-outline-w-val').textContent = e.target.value;
-        updateSpecialStyle('outline_width', parseInt(e.target.value));
-    });
-
-    // §4 Shadow
-    document.getElementById('special-shadow-enabled').addEventListener('change', (e) => {
-        updateSpecialStyle('shadow_enabled', e.target.checked);
-        toggleShadowControls('special', e.target.checked);
-    });
-    document.getElementById('special-shadow-color').addEventListener('input', (e) => {
-        updateSpecialStyle('shadow_color', e.target.value);
-    });
-    document.getElementById('special-shadow-blur').addEventListener('input', (e) => {
-        document.getElementById('special-shadow-blur-val').textContent = e.target.value;
-        updateSpecialStyle('shadow_blur', parseInt(e.target.value));
-    });
-    document.getElementById('special-shadow-ox').addEventListener('input', (e) => {
-        document.getElementById('special-shadow-ox-val').textContent = e.target.value;
-        updateSpecialStyle('shadow_offset_x', parseInt(e.target.value));
-    });
-    document.getElementById('special-shadow-oy').addEventListener('input', (e) => {
-        document.getElementById('special-shadow-oy-val').textContent = e.target.value;
-        updateSpecialStyle('shadow_offset_y', parseInt(e.target.value));
-    });
-
-    // §5 Spacing
-    document.getElementById('special-letter-spacing').addEventListener('input', (e) => {
-        document.getElementById('special-letter-spacing-val').textContent = e.target.value;
-        updateSpecialStyle('letter_spacing', parseFloat(e.target.value));
-    });
-    document.getElementById('special-word-spacing').addEventListener('input', (e) => {
-        document.getElementById('special-word-spacing-val').textContent = e.target.value;
-        updateSpecialStyle('word_spacing', parseFloat(e.target.value));
-    });
-    document.getElementById('special-line-height').addEventListener('input', (e) => {
-        document.getElementById('special-line-height-val').textContent = e.target.value;
-        updateSpecialStyle('line_height', parseFloat(e.target.value));
-    });
-
-    // §6 Opacity
-    document.getElementById('special-opacity').addEventListener('input', (e) => {
-        document.getElementById('special-opacity-val').textContent = e.target.value;
-        updateSpecialStyle('text_opacity', parseInt(e.target.value) / 100);
-    });
-}
-
-// Update special style for selected words
-function updateSpecialStyle(property, value) {
-    if (!subtitleTrack || selectedWords.length === 0) return;
-
-    // Check if all selected words are in the same group
-    const firstWord = getSelectedWord();
-    if (!firstWord) return;
-
-    const allInSameGroup = selectedWords.every(({ segmentIndex, wordIndex }) => {
-        const seg = subtitleTrack.segments[segmentIndex];
-        const w = seg?.words[wordIndex];
-        return w && w.group_id === firstWord.group_id;
-    });
-
-    if (allInSameGroup && firstWord.group_id) {
-        // Update group style
-        const group = subtitleTrack.special_groups[firstWord.group_id];
-        if (group) {
-            group.style[property] = value;
-        }
-    } else {
-        // Update individual word styles
-        selectedWords.forEach(({ segmentIndex, wordIndex }) => {
-            const segment = subtitleTrack.segments[segmentIndex];
-            if (segment && segment.words[wordIndex]) {
-                const word = segment.words[wordIndex];
-                if (!word.style_override) {
-                    // Create a deep copy of global_style
-                    word.style_override = JSON.parse(JSON.stringify(subtitleTrack.global_style || {}));
-                }
-                word.style_override[property] = value;
-            }
-        });
-    }
-
-    // Update preview
     preview?.setTrack(subtitleTrack);
-
-    // Update timeline to reflect changes
-    if (timeline) {
-        timeline.draw();
-    }
-
+    timeline?.draw();
     autoSave();
 }
+
+// Alias kept for old code paths
+const updateSpecialStyle = updateMarkerStyle;
 
 // Initialize global style controls
 function initGlobalStyleControls() {
@@ -1902,29 +1939,40 @@ function initGlobalStyleControls() {
         document.getElementById('global-sub-rot-val').textContent = `${value}°`;
         updateGlobalStyle('rotation', value);
     });
-    document.getElementById('global-wpl').addEventListener('input', (e) => {
-        document.getElementById('global-wpl-val').textContent = e.target.value;
-        if (subtitleTrack) {
+    const wplEl = document.getElementById('global-wpl');
+    if (wplEl) {
+        wplEl.addEventListener('input', (e) => {
+            document.getElementById('global-wpl-val').textContent = e.target.value;
+            if (!subtitleTrack || subtitleTrack.sentence_mode) return; // Disabled in sentence mode
             subtitleTrack.words_per_line = parseInt(e.target.value);
             const allWords = [];
-            for (const seg of subtitleTrack.segments) {
-                allWords.push(...seg.words);
-            }
+            for (const seg of subtitleTrack.segments) allWords.push(...seg.words);
             subtitleTrack.segments = [];
             for (let i = 0; i < allWords.length; i += subtitleTrack.words_per_line) {
                 const chunk = allWords.slice(i, i + subtitleTrack.words_per_line);
-                subtitleTrack.segments.push({
-                    words: chunk,
-                    style: JSON.parse(JSON.stringify(subtitleTrack.global_style || {}))
-                });
+                subtitleTrack.segments.push({ words: chunk, style: { ...subtitleTrack.global_style } });
             }
             populateSegments(subtitleTrack.segments);
             populateFullText(subtitleTrack.segments);
             preview?.setTrack(subtitleTrack);
             timeline?.setData(subtitleTrack, project.video_duration, project.id);
             autoSave();
-        }
-    });
+        });
+    }
+
+    // Text box width
+    const tbwEl = document.getElementById('global-text-box-width');
+    if (tbwEl) {
+        tbwEl.addEventListener('input', (e) => {
+            const valEl = document.getElementById('global-text-box-width-val');
+            if (valEl) valEl.textContent = `${e.target.value}%`;
+            if (subtitleTrack) {
+                subtitleTrack.text_box_width = parseInt(e.target.value) / 100;
+                preview?.setTrack(subtitleTrack);
+                autoSave();
+            }
+        });
+    }
 
     // Animation controls
     document.getElementById('global-animation').addEventListener('change', (e) => {
@@ -2001,27 +2049,22 @@ function initDeselectOnEscape() {
 }
 
 /**
- * Generates a deterministic HSL color based on a group ID.
- * @param {string} groupId The group UUID
- * @param {number} alpha Opacity (0-1)
- * @returns {string} HSLA color string
+ * Marker colour for word chips in the segments panel.
+ * Standard → no colour; Highlight → amber; Spotlight → purple
  */
-function getGroupColor(groupId, alpha = 0.4) {
-    if (!groupId) return `rgba(255, 215, 0, ${alpha})`; // Default yellow for special words without group
-    
-    let hash = 0;
-    for (let i = 0; i < groupId.length; i++) {
-        hash = groupId.charCodeAt(i) + ((hash << 5) - hash);
+function markerChipColor(marker) {
+    switch (marker) {
+        case 'highlight': return 'background:rgba(255,200,0,0.18);border:1px solid rgba(255,200,0,0.5);';
+        case 'spotlight': return 'background:rgba(180,80,255,0.18);border:1px solid rgba(180,80,255,0.5);';
+        default: return '';
     }
-    
-    const hue = Math.abs(hash % 360);
-    return `hsla(${hue}, 80%, 50%, ${alpha})`;
 }
 
-// Override populateSegments to support word selection
-const originalPopulateSegments = populateSegments;
+// Override populateSegments to show word selections with new marker colours
+const _origPopulateSegments = populateSegments;
 populateSegments = function(segments) {
     const panel = document.getElementById('segments-panel');
+    if (!panel) return;
 
     if (!segments || segments.length === 0) {
         panel.innerHTML = '<p class="text-sm text-slate-400">No transcript segments.</p>';
@@ -2032,21 +2075,11 @@ populateSegments = function(segments) {
         const startTime = seg.words?.[0]?.start_time || 0;
         const endTime = seg.words?.[seg.words.length - 1]?.end_time || 0;
 
-        // Build word HTML with special highlighting
-        const wordsHtml = seg.words?.map((word, wordIdx) => {
-            const isSpecial = word.is_special === true;
-            let styleAttr = '';
-            let specialClass = '';
-            
-            if (isSpecial) {
-                const bgColor = getGroupColor(word.group_id, 0.2);
-                const borderColor = getGroupColor(word.group_id, 0.5);
-                styleAttr = `style="background-color: ${bgColor}; border: 1px solid ${borderColor};"`;
-                specialClass = 'is-special'; // For targeted UI updates if needed
-            }
-            
-            return `<span class="word-item px-1 rounded cursor-pointer hover:bg-white/10 transition-colors ${specialClass}" ${styleAttr} data-segment-idx="${segIdx}" data-word-idx="${wordIdx}">${escapeHtml(word.word)}</span>`;
-        }).join(' ') || '';
+        const wordsHtml = (seg.words || []).map((word, wordIdx) => {
+            const marker = word.marker || 'standard';
+            const chipStyle = markerChipColor(marker);
+            return `<span class="word-item px-1 py-0.5 rounded cursor-pointer hover:bg-white/10 transition-colors" style="${chipStyle}" data-segment-idx="${segIdx}" data-word-idx="${wordIdx}" title="${marker}">${escapeHtml(word.word)}</span>`;
+        }).join(' ');
 
         return `
             <div class="segment-item p-2 rounded-lg border border-transparent hover:border-white/10 hover:bg-white/5 cursor-pointer transition-all" data-idx="${segIdx}">
@@ -2055,68 +2088,60 @@ populateSegments = function(segments) {
                     <span class="text-[10px] text-slate-500">→</span>
                     <span class="text-[10px] text-primary font-mono">${formatDuration(endTime)}</span>
                 </div>
-                <p class="text-sm text-slate-200 leading-relaxed">${wordsHtml}</p>
-            </div>
-        `;
+                <p class="text-sm text-slate-200 leading-relaxed flex flex-wrap gap-y-1">${wordsHtml}</p>
+            </div>`;
     }).join('');
 
-    // Click handler for segments
+    // Segment click — seek
     panel.querySelectorAll('.segment-item').forEach(item => {
         item.addEventListener('click', (e) => {
-            // Don't trigger if clicking on a word
             if (e.target.closest('.word-item')) return;
-
             const idx = parseInt(item.dataset.idx);
             const seg = segments[idx];
-            const startTime = seg.words?.[0]?.start_time || 0;
-            document.getElementById('video-player').currentTime = startTime;
-            if (timeline) {
-                timeline.selectedIndex = { track: 'text', index: idx };
-                timeline.draw();
-            }
+            document.getElementById('video-player').currentTime = seg.words?.[0]?.start_time || 0;
+            if (timeline) { timeline.selectedIndex = { track: 'text', index: idx }; timeline.draw(); }
             highlightSegment(idx);
         });
     });
 
-    // Re-apply word selection
     updateWordSelectionUI();
-
-    // Re-attach word selection event listeners after innerHTML replacement
     attachWordSelectionListeners();
 };
 
-// Attach word selection event listeners to the segments panel
+// Attach word selection listeners (clone to remove old ones)
 function attachWordSelectionListeners() {
     const panel = document.getElementById('segments-panel');
     if (!panel) return;
 
-    console.log('[attachWordSelectionListeners] Attaching listeners to panel');
-
-    // Remove old listeners by cloning
     const newPanel = panel.cloneNode(true);
     panel.parentNode.replaceChild(newPanel, panel);
 
-    // Add click handler for word selection
+    // Delegated segment-level click (seek + highlight)
     newPanel.addEventListener('click', (e) => {
+        // If a word was clicked, handle word selection instead
         const wordEl = e.target.closest('.word-item');
         if (wordEl) {
             e.stopPropagation();
-            console.log('[Word Click] wordEl:', wordEl);
             handleWordClick(wordEl, e.ctrlKey || e.metaKey);
+            return;
+        }
+        // Segment-level click — seek to segment start
+        const segItem = e.target.closest('.segment-item');
+        if (segItem) {
+            const idx = parseInt(segItem.dataset.idx);
+            const seg = subtitleTrack?.segments?.[idx];
+            if (seg) {
+                document.getElementById('video-player').currentTime = seg.words?.[0]?.start_time || 0;
+                if (timeline) { timeline.selectedIndex = { track: 'text', index: idx }; timeline.draw(); }
+                highlightSegment(idx);
+            }
         }
     });
 
-    // Add context menu handler
     newPanel.addEventListener('contextmenu', (e) => {
         const wordEl = e.target.closest('.word-item');
-        if (wordEl) {
-            e.preventDefault();
-            showContextMenu(e.clientX, e.clientY, wordEl);
-        }
+        if (!wordEl) return;
+        e.preventDefault();
+        showContextMenu(e.clientX, e.clientY, wordEl);
     });
 }
-
-// Initialize the styling system
-document.addEventListener('DOMContentLoaded', () => {
-    initStylingSystem();
-});

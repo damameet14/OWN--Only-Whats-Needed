@@ -52,47 +52,74 @@ _font_cache: dict[tuple[str, int, int, str], skia.Font] = {}
 
 
 def _get_font(family: str, size: int, weight: int = 400, style: str = "normal") -> skia.Font:
-    """Load a skia.Font. Attempts matching by name or loading from FONTS_DIR if available."""
+    """Load a skia.Font, correctly resolving weight/style variants.
+    
+    Priority:
+    1. Weight/style-specific file (e.g. Mukta-Bold.ttf) if it exists in FONTS_DIR.
+    2. Regular file from FONTS_DIR, displayed via Skia's font style (weight/slant).
+    3. System font via MakeFromName with the correct Skia FontStyle.
+    4. Default typeface fallback.
+    """
     key = (family, size, weight, style)
     if key in _font_cache:
         return _font_cache[key]
 
-    # Map CSS weight to Skia weight
-    sk_weight = skia.FontStyle.kNormal_Weight
-    if weight <= 300: sk_weight = skia.FontStyle.kLight_Weight
-    elif weight == 400: sk_weight = skia.FontStyle.kNormal_Weight
-    elif weight == 500: sk_weight = skia.FontStyle.kMedium_Weight
-    elif weight == 600: sk_weight = skia.FontStyle.kSemiBold_Weight
-    elif weight >= 700: sk_weight = skia.FontStyle.kBold_Weight
-    
+    is_bold = weight >= 700
+    is_italic = style in ('italic', 'oblique')
+
+    # Map CSS weight to Skia weight constant
+    if weight <= 300:
+        sk_weight = skia.FontStyle.kLight_Weight
+    elif weight <= 400:
+        sk_weight = skia.FontStyle.kNormal_Weight
+    elif weight <= 500:
+        sk_weight = skia.FontStyle.kMedium_Weight
+    elif weight <= 600:
+        sk_weight = skia.FontStyle.kSemiBold_Weight
+    else:
+        sk_weight = skia.FontStyle.kBold_Weight
+
     # Map CSS style to Skia slant
-    slant = skia.FontStyle.kItalic_Slant if style == 'italic' else skia.FontStyle.kUpright_Slant
-    font_style = skia.FontStyle(sk_weight, skia.FontStyle.kNormal_Width, slant)
-    
-    # Try creating directly from fonts dir
-    font_files = {
-        "Noto Sans Devanagari": "NotoSansDevanagari-Regular.ttf",
-        "Mukta": "Mukta-Regular.ttf",
-        "Baloo 2": "Baloo2-Regular.ttf",
+    slant = skia.FontStyle.kItalic_Slant if is_italic else skia.FontStyle.kUpright_Slant
+    font_style_obj = skia.FontStyle(sk_weight, skia.FontStyle.kNormal_Width, slant)
+
+    # Font file registry — base names (without suffix) keyed by family
+    font_base: dict[str, str] = {
+        "Noto Sans Devanagari": "NotoSansDevanagari",
+        "Mukta": "Mukta",
+        "Baloo 2": "Baloo2",
     }
-    
+
     typeface = None
-    if family in font_files:
-        font_path = os.path.join(FONTS_DIR, font_files[family])
-        if os.path.exists(font_path):
-            typeface = skia.Typeface.MakeFromFile(font_path)
-            
-    # Fallback to system fonts if file doesn't exist or isn't listed
+    base = font_base.get(family)
+    if base:
+        # Build candidate filenames in priority order (most specific first)
+        candidates = []
+        if is_bold and is_italic:
+            candidates += [f"{base}-BoldItalic.ttf", f"{base}-Bold.ttf"]
+        elif is_bold:
+            candidates.append(f"{base}-Bold.ttf")
+        elif is_italic:
+            candidates.append(f"{base}-Italic.ttf")
+        candidates.append(f"{base}-Regular.ttf")   # fallback to Regular
+
+        for candidate in candidates:
+            font_path = os.path.join(FONTS_DIR, candidate)
+            if os.path.exists(font_path):
+                typeface = skia.Typeface.MakeFromFile(font_path)
+                if typeface:
+                    break
+
+    # Fallback: system font with the proper Skia FontStyle (weight + slant)
     if not typeface:
-        typeface = skia.Typeface.MakeFromName(family, font_style)
-    
-    # Absolute fallback
+        typeface = skia.Typeface.MakeFromName(family, font_style_obj)
+
     if not typeface:
         typeface = skia.Typeface.MakeDefault()
 
     font = skia.Font(typeface, size)
     font.setEdging(skia.Font.Edging.kAntiAlias)
-    
+
     _font_cache[key] = font
     return font
 
@@ -377,241 +404,233 @@ def _render_subtitle_on_frame(
         img.paste(Image.alpha_composite(img.convert("RGBA"), overlay_pil).convert("RGB"))
 
 
-def _get_word_style(word, seg_style, track):
-    """Resolve the effective style for a word — mirrors preview.js getWordStyle()."""
-    # If the word has an individual style_override dict/object, use it
+def _get_word_style(word, seg_style: SubtitleStyle, track: SubtitleTrack) -> SubtitleStyle:
+    """Resolve the effective style for a word using the new marker system.
+    
+    Priority:
+    1. word.style_override (per-word individual style, apply-all=false)
+    2. marker == 'highlight' → track.highlight_style
+    3. marker == 'spotlight' → track.spotlight_style
+    4. Default → segment style
+    """
     if word.style_override is not None:
         if isinstance(word.style_override, SubtitleStyle):
             return word.style_override
-        # dict form (from JSON round-trip)
         return SubtitleStyle.from_dict(word.style_override)
 
-    # If the word belongs to a special group, use the group style
-    if word.group_id and word.group_id in track.special_groups:
-        return track.special_groups[word.group_id].style
+    marker = getattr(word, 'marker', 'standard')
+    if marker == 'highlight':
+        return track.highlight_style
+    if marker == 'spotlight':
+        return track.spotlight_style
 
-    # Default: segment style
     return seg_style
-def _paint_subtitle(canvas: skia.Canvas, seg, track, anim_state, frame_w, frame_h):
-    """Paint subtitle text using Skia with support for all style properties."""
-    # Check if any word in the segment has special styling
-    has_special = any(w.is_special or w.style_override or w.group_id for w in seg.words)
 
-    if has_special:
+
+def _paint_subtitle(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
+    """Paint subtitle text using Skia — routes to word-by-word if any non-standard markers exist."""
+    has_non_standard = any(
+        getattr(w, 'marker', 'standard') != 'standard' or w.style_override is not None
+        for w in seg.words
+    )
+
+    if has_non_standard:
         _paint_subtitle_word_by_word(canvas, seg, track, anim_state, frame_w, frame_h)
     else:
         _paint_subtitle_uniform(canvas, seg, track, anim_state, frame_w, frame_h)
 
 
-def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track, anim_state, frame_w, frame_h):
-    """Render each word individually with its own style (special word support)."""
+def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
+    """Render each word individually with its style, with text-box wrapping."""
     pos_x = track.position_x
     pos_y = track.position_y
     seg_style = seg.style
+    box_w = track.text_box_width * frame_w  # max line width in pixels
+    line_height_mult = getattr(seg_style, 'line_height', 1.2)
 
-    word_infos = [] 
-    total_w = 0
-    max_h = 0
-    
     # 1. Measure each word
+    word_infos = []
     for i, word in enumerate(seg.words):
         style = _get_word_style(word, seg_style, track)
         font = _get_font(style.font_family, style.font_size, style.font_weight, style.font_style)
         word_text = _apply_text_transform(word.word, style.text_transform)
         display = word_text + (" " if i < len(seg.words) - 1 else "")
-        
         bounds = skia.Rect()
         advance = font.measureText(display, bounds=bounds)
-        # Advance is perfectly exact
-        w = advance
         h = bounds.height() if bounds.height() > 0 else font.getSize()
-        
-        word_infos.append((display, font, style, w, h))
-        total_w += w
-        if h > max_h:
-            max_h = h
+        word_infos.append((display, font, style, advance, h))
 
-    if total_w <= 0 or max_h <= 0:
+    if not word_infos:
         return
 
-    # 2. Compute start position
-    start_x = pos_x * frame_w - total_w / 2
-    start_y = pos_y * frame_h - max_h
+    # 2. Wrap into lines respecting box_w
+    lines: list[list[tuple]] = []
+    current_line: list[tuple] = []
+    current_line_w = 0.0
+    for info in word_infos:
+        _, _, _, w, _ = info
+        if current_line and current_line_w + w > box_w:
+            lines.append(current_line)
+            current_line = [info]
+            current_line_w = w
+        else:
+            current_line.append(info)
+            current_line_w += w
+    if current_line:
+        lines.append(current_line)
 
-    start_x += anim_state.offset_x
-    start_y += anim_state.offset_y
+    # 3. Compute line heights and total block height
+    line_max_h = []
+    for line in lines:
+        lh = max((h for _, _, _, _, h in line), default=0)
+        line_max_h.append(lh)
 
-    start_x = max(0, min(start_x, frame_w - total_w))
-    start_y = max(0, min(start_y, frame_h - max_h))
+    # Estimate total height using the first line's font size for line-height
+    first_style = word_infos[0][2]
+    lh_mult = getattr(first_style, 'line_height', 1.2) if first_style else 1.2
+    total_block_h = sum(h * lh_mult for h in line_max_h)
 
-    # Center of text block for rotation
-    cx = start_x + total_w / 2
-    cy = start_y + max_h / 2
+    base_x = pos_x * frame_w
+    base_y = pos_y * frame_h - total_block_h + anim_state.offset_y
 
     canvas.save()
-    rotation = seg_style.rotation if hasattr(seg_style, 'rotation') else 0
-    if rotation != 0:
-        canvas.translate(cx, cy)
-        canvas.rotate(rotation)
-        canvas.translate(-cx, -cy)
 
-    cursor_x = start_x
+    cursor_y = base_y
+    for line_idx, (line, max_h) in enumerate(zip(lines, line_max_h)):
+        line_w = sum(w for _, _, _, w, _ in line)
+        cursor_x = base_x - line_w / 2 + anim_state.offset_x
 
-    # 3. Draw each word
-    for display, font, style, w_w, w_h in word_infos:
-        effective_opacity = anim_state.opacity * (style.text_opacity if hasattr(style, 'text_opacity') else 1.0)
-        
-        metrics = font.getMetrics()
-        # Top aligned baseline placement
-        local_y = start_y - metrics.fAscent
-        
-        paint = skia.Paint(AntiAlias=True)
-        
-        # Shadow
-        if style.shadow_enabled and style.shadow_color and (style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur):
-            sc = _parse_hex_color(style.shadow_color, effective_opacity)
-            paint.setImageFilter(skia.ImageFilters.DropShadow(
-                style.shadow_offset_x,
-                style.shadow_offset_y,
-                style.shadow_blur,
-                style.shadow_blur,
-                sc
-            ))
+        for display, font, style, w_w, w_h in line:
+            effective_opacity = anim_state.opacity * getattr(style, 'text_opacity', 1.0)
+            metrics = font.getMetrics()
+            local_y = cursor_y - metrics.fAscent
 
-        # Fill
-        if style.fill_type == "gradient":
-            c1 = _parse_hex_color(style.gradient_color1, effective_opacity)
-            c2 = _parse_hex_color(style.gradient_color2, effective_opacity)
-            angle = style.gradient_angle if hasattr(style, 'gradient_angle') else 0
-            rad = np.radians(angle)
-            cxx = cursor_x + w_w / 2
-            cyy = start_y + w_h / 2
-            dx = np.cos(rad) * w_w / 2
-            dy = np.sin(rad) * w_h / 2
-            paint.setShader(skia.GradientShader.MakeLinear(
-                points=[(cxx - dx, cyy - dy), (cxx + dx, cyy + dy)],
-                colors=[c1, c2]
-            ))
-        else:
-            paint.setColor(_parse_hex_color(style.text_color, effective_opacity))
+            paint = skia.Paint(AntiAlias=True)
 
-        # Background
-        if style.bg_color:
-            bg_pad = getattr(style, 'bg_padding', 0)
-            bg_color = _parse_hex_color(style.bg_color, effective_opacity)
-            bg_paint = skia.Paint(Color=bg_color, AntiAlias=True)
-            bg_rect = skia.Rect.MakeXYWH(cursor_x - bg_pad, start_y - bg_pad, w_w + bg_pad*2, max_h + bg_pad*2)
-            canvas.drawRect(bg_rect, bg_paint)
-
-        # Stroke (draw underneath text)
-        if hasattr(style, 'stroke_enabled') and style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
-            stroke_paint = skia.Paint(
-                AntiAlias=True,
-                Style=skia.Paint.kStroke_Style,
-                StrokeWidth=style.outline_width * 2,
-                StrokeJoin=skia.Paint.kRound_Join,
-                Color=_parse_hex_color(style.outline_color, effective_opacity)
-            )
-            # Transfer shadow to stroke if both exist
-            if style.shadow_enabled and style.shadow_color:
-                stroke_paint.setImageFilter(skia.ImageFilters.DropShadow(
-                    style.shadow_offset_x, style.shadow_offset_y, style.shadow_blur, style.shadow_blur, 
-                    _parse_hex_color(style.shadow_color, effective_opacity)
+            # Shadow
+            if style.shadow_enabled and style.shadow_color and (
+                style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur
+            ):
+                sc = _parse_hex_color(style.shadow_color, effective_opacity)
+                paint.setImageFilter(skia.ImageFilters.DropShadow(
+                    style.shadow_offset_x, style.shadow_offset_y,
+                    style.shadow_blur, style.shadow_blur, sc
                 ))
-                paint.setImageFilter(None)
 
-            canvas.drawString(display, cursor_x, local_y, font, stroke_paint)
+            # Fill
+            if style.fill_type == "gradient":
+                c1 = _parse_hex_color(style.gradient_color1, effective_opacity)
+                c2 = _parse_hex_color(style.gradient_color2, effective_opacity)
+                rad = np.radians(getattr(style, 'gradient_angle', 0))
+                cxx = cursor_x + w_w / 2
+                cyy = cursor_y + w_h / 2
+                dx = np.cos(rad) * w_w / 2
+                dy = np.sin(rad) * w_h / 2
+                paint.setShader(skia.GradientShader.MakeLinear(
+                    points=[(cxx - dx, cyy - dy), (cxx + dx, cyy + dy)],
+                    colors=[c1, c2]
+                ))
+            else:
+                paint.setColor(_parse_hex_color(style.text_color, effective_opacity))
 
-        # Draw main fill
-        canvas.drawString(display, cursor_x, local_y, font, paint)
-        cursor_x += w_w
+            # Background
+            if style.bg_color:
+                bg_pad = getattr(style, 'bg_padding', 0)
+                bg_paint = skia.Paint(Color=_parse_hex_color(style.bg_color, effective_opacity), AntiAlias=True)
+                bg_rect = skia.Rect.MakeXYWH(cursor_x - bg_pad, cursor_y - bg_pad, w_w + bg_pad * 2, max_h + bg_pad * 2)
+                canvas.drawRect(bg_rect, bg_paint)
+
+            # Stroke
+            if style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
+                stroke_paint = skia.Paint(
+                    AntiAlias=True,
+                    Style=skia.Paint.kStroke_Style,
+                    StrokeWidth=style.outline_width * 2,
+                    StrokeJoin=skia.Paint.kRound_Join,
+                    Color=_parse_hex_color(style.outline_color, effective_opacity)
+                )
+                if style.shadow_enabled and style.shadow_color:
+                    stroke_paint.setImageFilter(skia.ImageFilters.DropShadow(
+                        style.shadow_offset_x, style.shadow_offset_y,
+                        style.shadow_blur, style.shadow_blur,
+                        _parse_hex_color(style.shadow_color, effective_opacity)
+                    ))
+                    paint.setImageFilter(None)
+                canvas.drawString(display, cursor_x, local_y, font, stroke_paint)
+
+            canvas.drawString(display, cursor_x, local_y, font, paint)
+            cursor_x += w_w
+
+        cursor_y += max_h * getattr(first_style, 'line_height', 1.2)
 
     canvas.restore()
 
 
-def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track, anim_state, frame_w, frame_h):
-    """Paint subtitle text as a uniform block (no per-word styles)."""
+def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
+    """Paint subtitle text as a uniform block with text-box wrapping."""
     style = seg.style
     pos_x = track.position_x
     pos_y = track.position_y
+    box_w = track.text_box_width * frame_w
 
     font = _get_font(style.font_family, style.font_size, style.font_weight, style.font_style)
 
     anim_type = AnimationType(track.animation_type)
-
     if anim_type == AnimationType.TYPEWRITER and anim_state.visible_char_count >= 0:
-        display_text = seg.text[:anim_state.visible_char_count]
+        full_text = seg.text[:anim_state.visible_char_count]
     else:
-        display_text = seg.text
+        full_text = seg.text
 
-    display_text = _apply_text_transform(display_text, style.text_transform)
-
-    if not display_text.strip():
+    full_text = _apply_text_transform(full_text, style.text_transform)
+    if not full_text.strip():
         return
 
-    # Measure text
-    bounds = skia.Rect()
-    advance = font.measureText(display_text, bounds=bounds)
-    text_w = advance
-    text_h = bounds.height() if bounds.height() > 0 else font.getSize()
+    # Wrap text into lines respecting box_w
+    words = full_text.split()
+    lines = []
+    current_line = ""
+    for w in words:
+        test = (current_line + " " + w).strip()
+        bounds = skia.Rect()
+        font.measureText(test, bounds=bounds)
+        if current_line and bounds.width() > box_w:
+            lines.append(current_line)
+            current_line = w
+        else:
+            current_line = test
+    if current_line:
+        lines.append(current_line)
 
-    start_x = pos_x * frame_w - text_w / 2
-    start_y = pos_y * frame_h - text_h
+    effective_opacity = anim_state.opacity * getattr(style, 'text_opacity', 1.0)
+    metrics = font.getMetrics()
+    line_h = (metrics.fDescent - metrics.fAscent) * getattr(style, 'line_height', 1.2)
+    total_block_h = line_h * len(lines)
 
-    start_x += anim_state.offset_x
-    start_y += anim_state.offset_y
-
-    start_x = max(0, min(start_x, frame_w - text_w))
-    start_y = max(0, min(start_y, frame_h - text_h))
-
-    cx = start_x + text_w / 2
-    cy = start_y + text_h / 2
+    base_x = pos_x * frame_w
+    base_y = pos_y * frame_h - total_block_h + anim_state.offset_y
 
     canvas.save()
-    rotation = style.rotation if hasattr(style, 'rotation') else 0
+    rotation = getattr(style, 'rotation', 0)
     if rotation != 0:
+        cx = base_x
+        cy = base_y + total_block_h / 2
         canvas.translate(cx, cy)
         canvas.rotate(rotation)
         canvas.translate(-cx, -cy)
 
-    effective_opacity = anim_state.opacity * (style.text_opacity if hasattr(style, 'text_opacity') else 1.0)
-    
-    metrics = font.getMetrics()
-    local_y = start_y - metrics.fAscent
-
     paint = skia.Paint(AntiAlias=True)
 
-    if style.shadow_enabled and style.shadow_color and (style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur):
+    if style.shadow_enabled and style.shadow_color and (
+        style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur
+    ):
         sc = _parse_hex_color(style.shadow_color, effective_opacity)
         paint.setImageFilter(skia.ImageFilters.DropShadow(
             style.shadow_offset_x, style.shadow_offset_y,
             style.shadow_blur, style.shadow_blur, sc
         ))
 
-    if style.fill_type == "gradient":
-        c1 = _parse_hex_color(style.gradient_color1, effective_opacity)
-        c2 = _parse_hex_color(style.gradient_color2, effective_opacity)
-        angle = style.gradient_angle if hasattr(style, 'gradient_angle') else 0
-        rad = np.radians(angle)
-        cxx = start_x + text_w / 2
-        cyy = start_y + text_h / 2
-        dx = np.cos(rad) * text_w / 2
-        dy = np.sin(rad) * text_h / 2
-        paint.setShader(skia.GradientShader.MakeLinear(
-            points=[(cxx - dx, cyy - dy), (cxx + dx, cyy + dy)],
-            colors=[c1, c2]
-        ))
-    else:
-        paint.setColor(_parse_hex_color(style.text_color, effective_opacity))
-
-    if style.bg_color:
-        bg_pad = getattr(style, 'bg_padding', 0)
-        bg_color = _parse_hex_color(style.bg_color, effective_opacity)
-        bg_paint = skia.Paint(Color=bg_color, AntiAlias=True)
-        bg_rect = skia.Rect.MakeXYWH(start_x - bg_pad, start_y - bg_pad, text_w + bg_pad*2, text_h + bg_pad*2)
-        canvas.drawRect(bg_rect, bg_paint)
-
-    if hasattr(style, 'stroke_enabled') and style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
+    stroke_paint = None
+    if style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
         stroke_paint = skia.Paint(
             AntiAlias=True,
             Style=skia.Paint.kStroke_Style,
@@ -621,13 +640,50 @@ def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track, anim_state, frame_w
         )
         if style.shadow_enabled and style.shadow_color:
             stroke_paint.setImageFilter(skia.ImageFilters.DropShadow(
-                style.shadow_offset_x, style.shadow_offset_y, style.shadow_blur, style.shadow_blur, 
+                style.shadow_offset_x, style.shadow_offset_y,
+                style.shadow_blur, style.shadow_blur,
                 _parse_hex_color(style.shadow_color, effective_opacity)
             ))
             paint.setImageFilter(None)
-            
-        canvas.drawString(display_text, start_x, local_y, font, stroke_paint)
 
-    canvas.drawString(display_text, start_x, local_y, font, paint)
+    for line_idx, line_text in enumerate(lines):
+        if not line_text.strip():
+            continue
+
+        bounds = skia.Rect()
+        advance = font.measureText(line_text, bounds=bounds)
+        line_top = base_y + line_idx * line_h
+        local_y = line_top - metrics.fAscent
+        start_x = base_x - advance / 2 + anim_state.offset_x
+
+        # Gradient (per-line)
+        if style.fill_type == "gradient":
+            c1 = _parse_hex_color(style.gradient_color1, effective_opacity)
+            c2 = _parse_hex_color(style.gradient_color2, effective_opacity)
+            rad = np.radians(getattr(style, 'gradient_angle', 0))
+            cxx = start_x + advance / 2
+            cyy = line_top + line_h / 2
+            dx = np.cos(rad) * advance / 2
+            dy = np.sin(rad) * line_h / 2
+            paint.setShader(skia.GradientShader.MakeLinear(
+                points=[(cxx - dx, cyy - dy), (cxx + dx, cyy + dy)],
+                colors=[c1, c2]
+            ))
+        else:
+            paint.setColor(_parse_hex_color(style.text_color, effective_opacity))
+
+        # Background box
+        if style.bg_color:
+            bg_pad = getattr(style, 'bg_padding', 0)
+            bg_paint = skia.Paint(Color=_parse_hex_color(style.bg_color, effective_opacity), AntiAlias=True)
+            bg_rect = skia.Rect.MakeXYWH(
+                start_x - bg_pad, line_top - bg_pad,
+                advance + bg_pad * 2, line_h + bg_pad * 2
+            )
+            canvas.drawRect(bg_rect, bg_paint)
+
+        if stroke_paint:
+            canvas.drawString(line_text, start_x, local_y, font, stroke_paint)
+        canvas.drawString(line_text, start_x, local_y, font, paint)
 
     canvas.restore()

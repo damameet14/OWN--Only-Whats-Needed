@@ -42,9 +42,6 @@
             <span class="text-xs text-slate-400" id="save-status">Saved</span>
         </div>
         <div class="flex items-center gap-2">
-            <button class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white/5 border border-white/10 rounded-lg text-white hover:bg-white/10 transition-colors" id="btn-transcribe">
-                <span class="material-symbols-outlined" style="font-size:16px">mic</span> Transcribe
-            </button>
             <button class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-white/5 border border-white/10 rounded-lg text-white hover:bg-white/10 transition-colors" id="btn-srt">
                 <span class="material-symbols-outlined" style="font-size:16px">download</span> SRT
             </button>
@@ -104,14 +101,26 @@
 
             <!-- Style Section -->
             <div class="flex-1 flex flex-col min-h-0" id="style-section">
-                <!-- Subsection Tabs: All / Specials -->
+                <!-- Marker Tabs: Standard / Highlight / Spotlight -->
                 <div class="flex border-b border-white/10 bg-[#1c1a0e] flex-shrink-0">
-                    <button class="sub-tab-btn active flex-1 text-xs" data-sub-tab="all">All</button>
-                    <button class="sub-tab-btn flex-1 text-xs" data-sub-tab="specials">Specials</button>
+                    <button class="sub-tab-btn active flex-1 text-xs" data-main-marker-tab="standard">Standard</button>
+                    <button class="sub-tab-btn flex-1 text-xs text-amber-300" data-main-marker-tab="highlight">🟡 Highlight</button>
+                    <button class="sub-tab-btn flex-1 text-xs text-purple-300" data-main-marker-tab="spotlight">🟣 Spotlight</button>
                 </div>
 
-                <!-- All Subsection -->
+                <!-- All Subsection (Standard) -->
                 <div class="flex-1 flex flex-col min-h-0" id="all-subsection">
+                    <!-- Current word being edited indicator -->
+                    <div class="px-3 py-2 bg-slate-800/50 border-b border-white/10 flex-shrink-0" id="standard-editing-indicator">
+                        <p class="text-[11px] text-slate-400">Editing: <span class="text-white font-medium" id="standard-editing-label">All standard words</span></p>
+                    </div>
+                    <!-- Apply for All checkbox -->
+                    <div class="px-3 py-1.5 border-b border-white/10 flex-shrink-0">
+                        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                            <input type="checkbox" id="standard-apply-all" class="accent-primary w-3.5 h-3.5" checked/>
+                            Apply for all standard words
+                        </label>
+                    </div>
                     <!-- All: Text / Templates / Animation Tabs -->
                     <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
                         <button class="tab-btn active flex-shrink-0 text-xs" data-all-tab="text">Text</button>
@@ -314,22 +323,29 @@
                     </div>
                 </div>
 
-                <!-- Specials Subsection -->
+                <!-- Specials Subsection (Highlight / Spotlight marker styles) -->
                 <div class="flex-1 flex flex-col min-h-0 hidden" id="specials-subsection">
-                    <!-- Specials: Text / Templates / Animation Tabs -->
-                    <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
-                        <button class="tab-btn active flex-shrink-0 text-xs" data-special-tab="text">Text</button>
-                        <button class="tab-btn flex-shrink-0 text-xs" data-special-tab="templates">Templates</button>
-                        <button class="tab-btn flex-shrink-0 text-xs" data-special-tab="animation">Animation</button>
+                    <!-- Current word being edited indicator -->
+                    <div class="px-3 py-2 bg-slate-800/50 border-b border-white/10 flex-shrink-0" id="specials-editing-indicator">
+                        <p class="text-[11px] text-slate-400">Editing: <span class="text-white font-medium" id="specials-editing-label">All words in group</span></p>
+                    </div>
+                    <!-- Apply for All checkbox -->
+                    <div class="px-3 py-1.5 border-b border-white/10 flex-shrink-0">
+                        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                            <input type="checkbox" id="specials-apply-all" class="accent-primary w-3.5 h-3.5" checked/>
+                            <span id="specials-apply-all-label">Apply for all highlighted words</span>
+                        </label>
+                    </div>
+                    <!-- Word list in this marker group -->
+                    <div class="px-3 py-2 border-b border-white/10 flex-shrink-0 max-h-24 overflow-y-auto" id="specials-word-list">
+                        <p class="text-[10px] text-slate-500 mb-1">Words in group:</p>
+                        <div class="flex flex-wrap gap-1" id="specials-word-chips">
+                            <span class="text-xs text-slate-400 italic">No words assigned yet</span>
+                        </div>
                     </div>
 
-                    <!-- Specials: Empty State -->
-                    <div class="flex-1 flex items-center justify-center p-4 hidden" id="specials-empty">
-                        <p class="text-sm text-slate-400 text-center">No specials selected.<br/>Select words from the Segments panel to style them.</p>
-                    </div>
-
-                    <!-- Specials: Text Panel -->
-                    <div class="flex-1 overflow-y-auto p-3 space-y-1 hidden" id="specials-text-panel">
+                    <!-- Specials: Text Panel (always visible) -->
+                    <div class="flex-1 overflow-y-auto p-3 space-y-1" id="specials-text-panel">
 
                         <!-- §1 Font -->
                         <details class="style-group" open>
@@ -494,73 +510,90 @@
                             </div>
                         </details>
                     </div>
-
-                    <!-- Specials: Templates Panel -->
-                    <div class="flex-1 overflow-y-auto p-4 space-y-3 hidden" id="specials-templates-panel">
-                        <!-- Populated by JS -->
-                    </div>
-
-                    <!-- Specials: Animation Panel -->
-                    <div class="flex-1 overflow-y-auto p-4 space-y-4 hidden" id="specials-animation-panel">
-                        <div>
-                            <label class="style-label">Animation Type</label>
-                            <select id="special-animation" class="style-select">
-                                <option value="none">None</option>
-                                <option value="fade">Fade In/Out</option>
-                                <option value="slide_up">Slide Up</option>
-                                <option value="slide_down">Slide Down</option>
-                                <option value="typewriter">Typewriter</option>
-                                <option value="karaoke">Karaoke Highlight</option>
-                                <option value="pop">Pop / Scale</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="style-label">Duration: <span id="special-anim-dur-val">0.3s</span></label>
-                            <input type="range" id="special-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="style-range"/>
-                        </div>
-                    </div>
                 </div>
             </div>
 
             <!-- Video Section -->
             <div class="flex-1 flex flex-col min-h-0 hidden" id="video-section">
                 <div class="flex-1 overflow-y-auto p-4 space-y-5">
-                    <div>
-                        <label class="style-label">Video Rotation: <span id="global-vid-rot-val">0°</span></label>
-                        <div class="flex items-center gap-2">
-                            <input type="range" id="global-vid-rotation" min="-180" max="180" value="0" class="style-range flex-1"/>
-                            <input type="number" id="global-vid-rotation-input" min="-180" max="180" value="0" class="w-16 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm text-center"/>
+
+                    <!-- Segmentation -->
+                    <details class="style-group" open>
+                        <summary class="style-group-header">📋 Segmentation</summary>
+                        <div class="style-group-body space-y-3">
+                            <!-- Sentence mode toggle -->
+                            <div class="flex items-center justify-between">
+                                <label class="style-label mb-0" for="sentence-mode-toggle">Sentence is a Segment</label>
+                                <input type="checkbox" id="sentence-mode-toggle" class="accent-primary w-4 h-4 cursor-pointer"/>
+                            </div>
+                            <p class="text-[10px] text-slate-500 leading-snug">
+                                When ON, each line in the Full Text area (separated by a newline) becomes one segment.
+                                Words Per Line is disabled.
+                            </p>
+                            <!-- Words per line (disabled in sentence mode) -->
+                            <div id="wpl-wrap">
+                                <label class="style-label">Words Per Line: <span id="global-wpl-val">4</span></label>
+                                <input type="range" id="global-wpl" min="1" max="15" value="4" class="style-range"/>
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <label class="style-label">Subtitle Rotation: <span id="global-sub-rot-val">0°</span></label>
-                        <div class="flex items-center gap-2">
-                            <input type="range" id="global-sub-rotation" min="-180" max="180" value="0" class="style-range flex-1"/>
-                            <input type="number" id="global-sub-rotation-input" min="-180" max="180" value="0" class="w-16 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm text-center"/>
+                    </details>
+
+                    <!-- Text Box Width -->
+                    <details class="style-group" open>
+                        <summary class="style-group-header">📐 Text Box Width</summary>
+                        <div class="style-group-body">
+                            <label class="style-label">Width: <span id="global-text-box-width-val">80%</span></label>
+                            <input type="range" id="global-text-box-width" min="20" max="100" value="80" class="style-range"/>
+                            <p class="text-[10px] text-slate-500 mt-1">Drag the handle on the preview canvas for live adjustment.</p>
                         </div>
-                    </div>
-                    <div>
-                        <label class="style-label">Words Per Line: <span id="global-wpl-val">4</span></label>
-                        <input type="range" id="global-wpl" min="1" max="15" value="4" class="style-range"/>
-                    </div>
+                    </details>
+
+                    <!-- Video & Subtitle Rotation -->
+                    <details class="style-group">
+                        <summary class="style-group-header">🔄 Rotation</summary>
+                        <div class="style-group-body space-y-3">
+                            <div>
+                                <label class="style-label">Video Rotation: <span id="global-vid-rot-val">0°</span></label>
+                                <div class="flex items-center gap-2">
+                                    <input type="range" id="global-vid-rotation" min="-180" max="180" value="0" class="style-range flex-1"/>
+                                    <input type="number" id="global-vid-rotation-input" min="-180" max="180" value="0" class="w-16 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm text-center"/>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="style-label">Subtitle Rotation: <span id="global-sub-rot-val">0°</span></label>
+                                <div class="flex items-center gap-2">
+                                    <input type="range" id="global-sub-rotation" min="-180" max="180" value="0" class="style-range flex-1"/>
+                                    <input type="number" id="global-sub-rotation-input" min="-180" max="180" value="0" class="w-16 bg-white/10 border border-white/20 rounded px-2 py-1 text-sm text-center"/>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
                 </div>
             </div>
 
             <!-- Presets Section -->
             <div class="flex-1 flex flex-col min-h-0 hidden" id="presets-section">
                 <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
-                    <button class="tab-btn active flex-shrink-0 text-xs" data-preset-tab="presets">Presets</button>
-                    <button class="tab-btn flex-shrink-0 text-xs" data-preset-tab="templates">Templates</button>
+                    <button class="tab-btn active flex-shrink-0 text-xs" data-preset-tab="presets">My Presets</button>
+                    <button class="tab-btn flex-shrink-0 text-xs" data-preset-tab="templates">Built-in</button>
                 </div>
 
-                <!-- Presets Panel -->
-                <div class="flex-1 overflow-y-auto p-4 space-y-3" id="presets-panel">
+                <!-- My Presets Panel -->
+                <div class="flex-1 overflow-y-auto p-3 space-y-3" id="presets-panel">
                     <!-- Populated by JS -->
                 </div>
 
-                <!-- Templates Panel -->
-                <div class="flex-1 overflow-y-auto p-4 space-y-3 hidden" id="presets-templates-panel">
+                <!-- Built-in Templates Panel -->
+                <div class="flex-1 overflow-y-auto p-3 space-y-3 hidden" id="presets-templates-panel">
                     <!-- Populated by JS -->
+                </div>
+
+                <!-- Save current style as preset -->
+                <div class="flex-shrink-0 p-3 border-t border-white/10">
+                    <button id="btn-save-preset" class="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-primary text-bg-dark rounded-lg font-bold hover:bg-primary-hover transition-colors">
+                        <span class="material-symbols-outlined" style="font-size:16px">save</span> Save Current as Preset
+                    </button>
                 </div>
             </div>
         </div>
@@ -595,37 +628,35 @@
     </div>
 </div>
 
-<!-- Transcription Modal -->
+<!-- Transcription Modal (Whisper only) -->
 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" id="transcribe-modal">
-    <div class="bg-bg-surface border border-white/10 rounded-2xl p-8 w-full max-w-md modal-content">
-        <h3 class="text-xl font-bold text-white mb-6">Transcribe Video</h3>
-        <div class="space-y-4">
-            <!-- Model Selection Section -->
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-slate-300 mb-2">Transcription Engine</label>
-                <select id="transcribe-engine" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary">
-                    <option value="vosk">Vosk (Hindi)</option>
-                    <option value="whisper">Whisper (Multilingual)</option>
-                </select>
-            </div>
+    <div class="bg-bg-surface border border-white/10 rounded-2xl p-8 w-full max-w-md modal-content relative">
+        <!-- Close button -->
+        <button id="transcribe-close" class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" onclick="document.getElementById('transcribe-modal').classList.add('hidden')">
+            <span class="material-symbols-outlined">close</span>
+        </button>
 
-            <div id="whisper-model-section" class="mb-4 hidden">
+        <h3 class="text-xl font-bold text-white mb-1">Transcribe Video</h3>
+        <p class="text-xs text-slate-400 mb-6">Powered by OpenAI Whisper</p>
+
+        <div class="space-y-4">
+            <!-- Whisper Model -->
+            <div>
                 <label class="block text-sm font-medium text-slate-300 mb-2">Whisper Model</label>
                 <select id="transcribe-model" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary">
-                    <option value="faster-whisper-large-v3-turbo">Large v3 Turbo (800MB) - Recommended</option>
-                    <option value="faster-whisper-large-v3">Large v3 (3GB) - Higher Accuracy</option>
+                    <option value="faster-whisper-large-v3-turbo" selected>Large v3 Turbo (800 MB) — Recommended</option>
+                    <option value="faster-whisper-large-v3">Large v3 (3 GB) — Higher Accuracy</option>
                 </select>
-                <div id="model-status" class="mt-2 text-xs text-slate-400"></div>
-                <button id="download-model-btn" class="mt-2 w-full bg-slate-700 hover:bg-slate-600 text-white text-sm py-2 px-4 rounded-lg hidden">
-                    Download Model
-                </button>
             </div>
 
-            <div class="mb-4">
+            <!-- Words Per Line (only relevant when Sentence Mode is OFF) -->
+            <div>
                 <label class="block text-sm font-medium text-slate-300 mb-2">Words Per Line: <span id="transcribe-wpl-val">4</span></label>
                 <input type="range" id="transcribe-wpl" min="1" max="15" value="4" class="w-full accent-primary"/>
+                <p class="text-[10px] text-slate-500 mt-1">Ignored if Sentence Mode is enabled in Video settings.</p>
             </div>
 
+            <!-- Progress -->
             <div id="transcribe-progress-wrap" class="hidden">
                 <div class="flex items-center gap-3">
                     <div class="spinner"></div>
@@ -638,6 +669,7 @@
                 </div>
             </div>
         </div>
+
         <div class="flex gap-3 mt-8" id="transcribe-buttons">
             <button class="flex-1 bg-white/5 border border-white/10 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-white/10" id="transcribe-cancel">Cancel</button>
             <button class="flex-1 bg-primary text-bg-dark px-4 py-2 rounded-lg font-bold text-sm hover:bg-primary-hover" id="transcribe-start">Start Transcription</button>
@@ -647,7 +679,12 @@
 
 <!-- Export Modal -->
 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" id="export-modal">
-    <div class="bg-bg-surface border border-white/10 rounded-2xl p-8 w-full max-w-md modal-content">
+    <div class="bg-bg-surface border border-white/10 rounded-2xl p-8 w-full max-w-md modal-content relative">
+        <!-- Close (X) button -->
+        <button id="export-close" class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" onclick="document.getElementById('export-modal').classList.add('hidden')">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+
         <h3 class="text-xl font-bold text-white mb-6">Export Video</h3>
         <div class="space-y-4">
             <div>
@@ -684,16 +721,24 @@
 </div>
 
 <!-- Word Context Menu -->
-<div id="word-context-menu" class="fixed hidden bg-bg-surface border border-white/10 rounded-lg shadow-xl z-50 min-w-[150px]">
-    <button class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors" id="ctx-mark-special">Mark as Special</button>
-    <button class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors hidden" id="ctx-unmark">Unmark</button>
-    <button class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors hidden" id="ctx-create-group">Create Group</button>
-    <button class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors hidden" id="ctx-remove-group">Remove from Group</button>
+<div id="word-context-menu" class="fixed hidden bg-bg-surface border border-white/10 rounded-lg shadow-xl z-50 min-w-[170px] overflow-hidden">
+    <!-- New marker actions -->
+    <button class="w-full px-4 py-2 text-left text-sm text-slate-200 hover:bg-white/10 transition-colors" id="ctx-mark-standard">◻ Standard (remove marker)</button>
+    <div class="border-t border-white/10 mx-2"></div>
+    <button class="w-full px-4 py-2 text-left text-sm text-amber-300 hover:bg-amber-900/30 transition-colors" id="ctx-mark-highlight">🟡 Mark as Highlight</button>
+    <button class="w-full px-4 py-2 text-left text-sm text-purple-300 hover:bg-purple-900/30 transition-colors" id="ctx-mark-spotlight">🟣 Mark as Spotlight</button>
+    <div class="border-t border-white/10 mx-2"></div>
+    <button class="w-full px-4 py-2 text-left text-sm text-blue-300 hover:bg-blue-900/30 transition-colors" id="ctx-make-segment">✂️ Make a Segment</button>
+    <!-- Legacy IDs kept for JS compat (hidden) -->
+    <button class="hidden" id="ctx-mark-special"></button>
+    <button class="hidden" id="ctx-unmark"></button>
+    <button class="hidden" id="ctx-create-group"></button>
+    <button class="hidden" id="ctx-remove-group"></button>
 </div>
 
-<script src="/static/js/api.js?v=3"></script>
-<script src="/static/js/preview.js?v=2"></script>
-<script src="/static/js/timeline.js?v=8"></script>
-<script src="/static/js/editor.js?v=5"></script>
+<script src="/static/js/api.js?v=4"></script>
+<script src="/static/js/preview.js?v=3"></script>
+<script src="/static/js/timeline.js?v=9"></script>
+<script src="/static/js/editor.js?v=6"></script>
 </body>
 </html>

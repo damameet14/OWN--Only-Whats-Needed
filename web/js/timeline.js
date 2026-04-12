@@ -2,24 +2,6 @@
  * OWN — Canvas-based timeline widget.
  */
 
-/**
- * Generates a deterministic HSL color based on a group ID.
- * @param {string} groupId The group UUID
- * @param {number} alpha Opacity (0-1)
- * @returns {string} HSLA color string
- */
-function getGroupColor(groupId, alpha = 0.4) {
-    if (!groupId) return `rgba(255, 215, 0, ${alpha})`; // Default yellow for special words without group
-    
-    let hash = 0;
-    for (let i = 0; i < groupId.length; i++) {
-        hash = groupId.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    
-    const hue = Math.abs(hash % 360);
-    return `hsla(${hue}, 80%, 50%, ${alpha})`;
-}
-
 class SubtitleTimeline {
     constructor(canvasEl, wrapperEl) {
         this.canvas = canvasEl;
@@ -407,9 +389,6 @@ class SubtitleTimeline {
                 ctx.strokeStyle = isSelected ? '#ffe74d' : 'rgba(255, 231, 77, 0.5)';
                 ctx.lineWidth = isSelected ? 2 : 1;
                 ctx.strokeRect(x, subTrackY + 2, sw, trackH - 4);
-
-
-
                 // Segment text (if wide enough)
                 if (sw > 40) {
                     const text = seg.words?.map(w => w.word).join(' ') || '';

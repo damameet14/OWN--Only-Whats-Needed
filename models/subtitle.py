@@ -108,38 +108,22 @@ class SubtitleStyle:
 
 
 @dataclass
-class SpecialGroup:
-    """A group of special words with shared styling."""
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    name: str = ""
-    style: SubtitleStyle = field(default_factory=SubtitleStyle)
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "style": self.style.to_dict(),
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> SpecialGroup:
-        return cls(
-            id=d.get("id", str(uuid.uuid4())),
-            name=d.get("name", ""),
-            style=SubtitleStyle.from_dict(d.get("style", {})),
-        )
-
-
-@dataclass
 class StyledWord:
-    """A word with timing and optional per-word style override."""
+    """A word with timing and optional per-word style override.
+    
+    marker: 'standard' | 'highlight' | 'spotlight'
+        Determines which style pool this word draws from.
+        'standard'  → segment/global style
+        'highlight' → track.highlight_style (or style_override if apply-all=false)
+        'spotlight' → track.spotlight_style (or style_override if apply-all=false)
+    style_override: individual per-word style (used when apply-all=false for highlight/spotlight)
+    """
     word: str
     start_time: float
     end_time: float
     confidence: float = 1.0
-    style_override: Optional[SubtitleStyle] = None   # None = use segment style
-    is_special: bool = False                         # Marked as special
-    group_id: Optional[str] = None                   # Group ID if part of a group
+    marker: str = "standard"                          # standard / highlight / spotlight
+    style_override: Optional[SubtitleStyle] = None   # None = use marker's pool style
 
     @classmethod
     def from_word_timing(cls, wt: WordTiming) -> StyledWord:
@@ -156,10 +140,8 @@ class StyledWord:
             "start_time": self.start_time,
             "end_time": self.end_time,
             "confidence": self.confidence,
-            "is_special": self.is_special,
+            "marker": self.marker,
         }
-        if self.group_id:
-            d["group_id"] = self.group_id
         if self.style_override:
             d["style_override"] = self.style_override.to_dict()
         return d
@@ -169,14 +151,20 @@ class StyledWord:
         style = None
         if d.get("style_override"):
             style = SubtitleStyle.from_dict(d["style_override"])
+
+        # Backwards compat: old is_special=True → keep as standard (fresh start per spec)
+        marker = d.get("marker", "standard")
+        # Validate marker value
+        if marker not in ("standard", "highlight", "spotlight"):
+            marker = "standard"
+
         return cls(
             word=d["word"],
             start_time=d["start_time"],
             end_time=d["end_time"],
             confidence=d.get("confidence", 1.0),
+            marker=marker,
             style_override=style,
-            is_special=d.get("is_special", False),
-            group_id=d.get("group_id"),
         )
 
 
@@ -218,13 +206,28 @@ class SubtitleTrack:
     video_segments: list[MediaSegment] = field(default_factory=list)
     audio_segments: list[MediaSegment] = field(default_factory=list)
     global_style: SubtitleStyle = field(default_factory=SubtitleStyle)
-    special_groups: dict[str, SpecialGroup] = field(default_factory=dict)  # group_id -> SpecialGroup
+    highlight_style: SubtitleStyle = field(default_factory=lambda: SubtitleStyle(
+        text_color="#FFD700",
+        font_weight=700,
+        stroke_enabled=True,
+        outline_color="#000000",
+        outline_width=3,
+    ))
+    spotlight_style: SubtitleStyle = field(default_factory=lambda: SubtitleStyle(
+        text_color="#00FFFF",
+        font_weight=700,
+        stroke_enabled=True,
+        outline_color="#005588",
+        outline_width=3,
+    ))
     words_per_line: int = 4
     position_x: float = 0.5   # 0.0–1.0 normalised (0.5 = center)
     position_y: float = 0.9   # 0.0–1.0 normalised (0.9 = near bottom)
+    text_box_width: float = 0.8  # 0.0–1.0 — fraction of video width for text wrapping
     animation_type: str = "none"
     animation_duration: float = 0.3  # seconds
     video_rotation: int = 0  # angle in degrees
+    sentence_mode: bool = False  # if True, segments are defined by \n in full text
 
     def segment_at(self, time_sec: float) -> Optional[SubtitleSegment]:
         """Return the segment visible at the given timestamp."""
@@ -244,36 +247,16 @@ class SubtitleTrack:
                 style=self.global_style.copy(),
             ))
 
-    def get_group_style(self, group_id: str) -> Optional[SubtitleStyle]:
-        """Get the style for a group by ID."""
-        group = self.special_groups.get(group_id)
-        return group.style if group else None
-
-    def create_group(self, name: str = "") -> str:
-        """Create a new group and return its ID."""
-        group_id = str(uuid.uuid4())
-        self.special_groups[group_id] = SpecialGroup(id=group_id, name=name, style=self.global_style.copy())
-        return group_id
-
-    def delete_group(self, group_id: str) -> None:
-        """Delete a group and remove all words from it."""
-        if group_id in self.special_groups:
-            del self.special_groups[group_id]
-            # Remove group_id from all words
-            for seg in self.segments:
-                for word in seg.words:
-                    if word.group_id == group_id:
-                        word.group_id = None
-                        word.is_special = False
-
-    def get_group_members(self, group_id: str) -> list[tuple[int, int]]:
-        """Get all (segment_index, word_index) pairs for words in a group."""
-        members = []
-        for seg_idx, seg in enumerate(self.segments):
-            for word_idx, word in enumerate(seg.words):
-                if word.group_id == group_id:
-                    members.append((seg_idx, word_idx))
-        return members
+    def get_word_effective_style(self, word: StyledWord) -> SubtitleStyle:
+        """Resolve the effective style for a word based on its marker."""
+        if word.style_override is not None:
+            return word.style_override
+        if word.marker == "highlight":
+            return self.highlight_style
+        if word.marker == "spotlight":
+            return self.spotlight_style
+        # Standard — caller should use segment style
+        return None
 
     def to_dict(self) -> dict:
         return {
@@ -281,13 +264,16 @@ class SubtitleTrack:
             "video_segments": [s.to_dict() for s in self.video_segments],
             "audio_segments": [s.to_dict() for s in self.audio_segments],
             "global_style": self.global_style.to_dict(),
-            "special_groups": {gid: g.to_dict() for gid, g in self.special_groups.items()},
+            "highlight_style": self.highlight_style.to_dict(),
+            "spotlight_style": self.spotlight_style.to_dict(),
             "words_per_line": self.words_per_line,
             "position_x": self.position_x,
             "position_y": self.position_y,
+            "text_box_width": self.text_box_width,
             "animation_type": self.animation_type,
             "animation_duration": self.animation_duration,
             "video_rotation": self.video_rotation,
+            "sentence_mode": self.sentence_mode,
         }
 
     @classmethod
@@ -296,23 +282,30 @@ class SubtitleTrack:
         video_segments = [MediaSegment.from_dict(s) for s in d.get("video_segments", [])]
         audio_segments = [MediaSegment.from_dict(s) for s in d.get("audio_segments", [])]
         global_style = SubtitleStyle.from_dict(d.get("global_style", {}))
-
-        special_groups = {}
-        for gid, g_data in d.get("special_groups", {}).items():
-            special_groups[gid] = SpecialGroup.from_dict(g_data)
+        highlight_style = SubtitleStyle.from_dict(d.get("highlight_style", {
+            "text_color": "#FFD700", "font_weight": 700,
+            "stroke_enabled": True, "outline_color": "#000000", "outline_width": 3,
+        }))
+        spotlight_style = SubtitleStyle.from_dict(d.get("spotlight_style", {
+            "text_color": "#00FFFF", "font_weight": 700,
+            "stroke_enabled": True, "outline_color": "#005588", "outline_width": 3,
+        }))
 
         return cls(
             segments=segments,
             video_segments=video_segments,
             audio_segments=audio_segments,
             global_style=global_style,
-            special_groups=special_groups,
+            highlight_style=highlight_style,
+            spotlight_style=spotlight_style,
             words_per_line=d.get("words_per_line", 4),
             position_x=d.get("position_x", 0.5),
             position_y=d.get("position_y", 0.9),
+            text_box_width=d.get("text_box_width", 0.8),
             animation_type=d.get("animation_type", "none"),
             animation_duration=d.get("animation_duration", 0.3),
             video_rotation=d.get("video_rotation", 0),
+            sentence_mode=d.get("sentence_mode", False),
         )
 
     def to_json(self) -> str:
