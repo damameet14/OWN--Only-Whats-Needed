@@ -102,8 +102,22 @@ async function loadProject(id) {
 
             timeline.onSelect = (sel) => {
                 if (sel && sel.track === 'text') {
+                    selectedWords = [];
+                    if (subtitleTrack && subtitleTrack.segments && subtitleTrack.segments[sel.index]) {
+                        const words = subtitleTrack.segments[sel.index].words;
+                        if (words) {
+                            for (let i = 0; i < words.length; i++) {
+                                selectedWords.push({ segmentIndex: sel.index, wordIndex: i });
+                            }
+                        }
+                    }
+                    updateWordSelectionUI();
                     highlightSegment(sel.index);
+                    const targetEl = document.querySelector(`.segment-item[data-idx="${sel.index}"]`);
+                    if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 } else {
+                    selectedWords = [];
+                    updateWordSelectionUI();
                     highlightSegment(-1);
                 }
             };
@@ -1787,9 +1801,26 @@ function initMarkerStyleControls() {
 function updateMarkerStyle(property, value) {
     if (!subtitleTrack) return;
 
-    const key = currentMarkerTab === 'spotlight' ? 'spotlight_style' : 'highlight_style';
-    if (!subtitleTrack[key]) subtitleTrack[key] = {};
-    subtitleTrack[key][property] = value;
+    const applyAllChk = document.getElementById('specials-apply-all');
+    const applyAll = applyAllChk ? applyAllChk.checked : true;
+
+    if (applyAll || selectedWords.length === 0) {
+        const key = currentMarkerTab === 'spotlight' ? 'spotlight_style' : 'highlight_style';
+        if (!subtitleTrack[key]) subtitleTrack[key] = {};
+        subtitleTrack[key][property] = value;
+    } else {
+        selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+            const seg = subtitleTrack.segments[segmentIndex];
+            if (seg && seg.words && seg.words[wordIndex]) {
+                const word = seg.words[wordIndex];
+                if (!word.style_override) {
+                    const baseStyle = preview?.getWordStyle({ ...word, style_override: null }, seg.style || subtitleTrack.global_style, subtitleTrack) || subtitleTrack.global_style;
+                    word.style_override = JSON.parse(JSON.stringify(baseStyle || {}));
+                }
+                word.style_override[property] = value;
+            }
+        });
+    }
 
     preview?.setTrack(subtitleTrack);
     timeline?.draw();
@@ -1996,18 +2027,35 @@ function initGlobalStyleControls() {
 function updateGlobalStyle(property, value) {
     if (!subtitleTrack) return;
 
-    // Update global style
-    if (subtitleTrack.global_style) {
-        subtitleTrack.global_style[property] = value;
-    }
+    const applyAllChk = document.getElementById('standard-apply-all');
+    const applyAll = applyAllChk ? applyAllChk.checked : true;
 
-    // Update all segment styles
-    if (subtitleTrack.segments) {
-        for (const seg of subtitleTrack.segments) {
-            if (seg.style) {
-                seg.style[property] = value;
+    if (applyAll || selectedWords.length === 0) {
+        // Update global style
+        if (subtitleTrack.global_style) {
+            subtitleTrack.global_style[property] = value;
+        }
+
+        // Update all segment styles
+        if (subtitleTrack.segments) {
+            for (const seg of subtitleTrack.segments) {
+                if (seg.style) {
+                    seg.style[property] = value;
+                }
             }
         }
+    } else {
+        selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+            const seg = subtitleTrack.segments[segmentIndex];
+            if (seg && seg.words && seg.words[wordIndex]) {
+                const word = seg.words[wordIndex];
+                if (!word.style_override) {
+                    const baseStyle = preview?.getWordStyle({ ...word, style_override: null }, seg.style || subtitleTrack.global_style, subtitleTrack) || subtitleTrack.global_style;
+                    word.style_override = JSON.parse(JSON.stringify(baseStyle || {}));
+                }
+                word.style_override[property] = value;
+            }
+        });
     }
 
     preview?.setTrack(subtitleTrack);

@@ -18,6 +18,7 @@ class SubtitlePreview {
         // --- Draggable text-box handle state ---
         this._handleDragging = false;
         this._handleCursor = 'ew-resize';
+        this._boxSelected = false;
 
         this._bindHandleEvents();
     }
@@ -79,8 +80,8 @@ class SubtitlePreview {
             }
         }
 
-        // Draw handle only when a subtitle is visible
-        if (activeSeg) {
+        // Draw handle only when a subtitle is visible and selected
+        if (activeSeg && this._boxSelected) {
             this._drawHandle(ctx, track, w, h);
         }
 
@@ -125,35 +126,33 @@ class SubtitlePreview {
 
     _drawHandle(ctx, track, w, h) {
         const hx = this._getHandleX(track, w);
+        const boxWidth = track.text_box_width ?? 0.8;
+        const posX = track.position_x ?? 0.5;
+        const halfBox = boxWidth * w / 2;
+        const lx = posX * w - halfBox;
+        
         const lineTop = h * 0.05;
         const lineBottom = h * 0.95;
 
         ctx.save();
         ctx.setLineDash([6, 5]);
-        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
         ctx.lineWidth = 2;
+        
+        // Bounding box
         ctx.beginPath();
-        ctx.moveTo(hx, lineTop);
-        ctx.lineTo(hx, lineBottom);
+        ctx.rect(lx, lineTop, hx - lx, lineBottom - lineTop);
         ctx.stroke();
 
-        // Grip circle
+        // Right Grip circle
         const cy = h * 0.5;
         ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
         ctx.beginPath();
         ctx.arc(hx, cy, 8, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
         ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Grip chevrons
-        ctx.strokeStyle = 'rgba(60,60,60,0.9)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(hx - 3, cy - 4); ctx.lineTo(hx - 6, cy); ctx.lineTo(hx - 3, cy + 4);
-        ctx.moveTo(hx + 3, cy - 4); ctx.lineTo(hx + 6, cy); ctx.lineTo(hx + 3, cy + 4);
         ctx.stroke();
 
         ctx.restore();
@@ -189,9 +188,12 @@ class SubtitlePreview {
         });
 
         cvs.addEventListener('mousedown', (e) => {
-            if (hitTest(e.clientX)) {
+            if (this._boxSelected && hitTest(e.clientX)) {
                 this._handleDragging = true;
                 e.preventDefault();
+            } else {
+                this._boxSelected = !this._boxSelected;
+                this.draw();
             }
         });
 
