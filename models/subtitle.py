@@ -117,6 +117,9 @@ class StyledWord:
         'highlight' → track.highlight_style (or style_override if apply-all=false)
         'spotlight' → track.spotlight_style (or style_override if apply-all=false)
     style_override: individual per-word style (used when apply-all=false for highlight/spotlight)
+    position_preset: optional 3×3 grid position for this word (e.g. 'top-center')
+    animation_type: optional per-word animation override
+    animation_duration: optional per-word animation duration override
     """
     word: str
     start_time: float
@@ -124,6 +127,9 @@ class StyledWord:
     confidence: float = 1.0
     marker: str = "standard"                          # standard / highlight / spotlight
     style_override: Optional[SubtitleStyle] = None   # None = use marker's pool style
+    position_preset: Optional[str] = None            # None = use segment position; e.g. 'top-center'
+    animation_type: Optional[str] = None             # None = use segment/track animation
+    animation_duration: Optional[float] = None       # None = use segment/track duration
 
     @classmethod
     def from_word_timing(cls, wt: WordTiming) -> StyledWord:
@@ -144,6 +150,12 @@ class StyledWord:
         }
         if self.style_override:
             d["style_override"] = self.style_override.to_dict()
+        if self.position_preset is not None:
+            d["position_preset"] = self.position_preset
+        if self.animation_type is not None:
+            d["animation_type"] = self.animation_type
+        if self.animation_duration is not None:
+            d["animation_duration"] = self.animation_duration
         return d
 
     @classmethod
@@ -165,14 +177,28 @@ class StyledWord:
             confidence=d.get("confidence", 1.0),
             marker=marker,
             style_override=style,
+            position_preset=d.get("position_preset"),
+            animation_type=d.get("animation_type"),
+            animation_duration=d.get("animation_duration"),
         )
 
 
 @dataclass
 class SubtitleSegment:
-    """A group of styled words that appear together as one subtitle block."""
+    """A group of styled words that appear together as one subtitle block.
+    
+    apply_for_all: when True, this segment follows global style changes.
+        When False, this segment has independent style/position/animation.
+    position_x/y: per-segment position overrides (None = use track position).
+    animation_type/duration: per-segment animation overrides (None = use track).
+    """
     words: list[StyledWord] = field(default_factory=list)
     style: SubtitleStyle = field(default_factory=SubtitleStyle)
+    apply_for_all: bool = True
+    position_x: Optional[float] = None   # None = use track.position_x
+    position_y: Optional[float] = None   # None = use track.position_y
+    animation_type: Optional[str] = None       # None = use track.animation_type
+    animation_duration: Optional[float] = None # None = use track.animation_duration
 
     @property
     def start_time(self) -> float:
@@ -187,16 +213,34 @@ class SubtitleSegment:
         return " ".join(w.word for w in self.words)
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "words": [w.to_dict() for w in self.words],
             "style": self.style.to_dict(),
+            "apply_for_all": self.apply_for_all,
         }
+        if self.position_x is not None:
+            d["position_x"] = self.position_x
+        if self.position_y is not None:
+            d["position_y"] = self.position_y
+        if self.animation_type is not None:
+            d["animation_type"] = self.animation_type
+        if self.animation_duration is not None:
+            d["animation_duration"] = self.animation_duration
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> SubtitleSegment:
         words = [StyledWord.from_dict(w) for w in d.get("words", [])]
         style = SubtitleStyle.from_dict(d.get("style", {}))
-        return cls(words=words, style=style)
+        return cls(
+            words=words,
+            style=style,
+            apply_for_all=d.get("apply_for_all", True),
+            position_x=d.get("position_x"),
+            position_y=d.get("position_y"),
+            animation_type=d.get("animation_type"),
+            animation_duration=d.get("animation_duration"),
+        )
 
 
 @dataclass

@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
-    <link href="/css/app.css" rel="stylesheet"/>
+    <link href="/css/app.css?v=2" rel="stylesheet"/>
     <script>
         tailwind.config = {
             darkMode: "class",
@@ -115,11 +115,17 @@
                         <p class="text-[11px] text-slate-400">Editing: <span class="text-white font-medium" id="standard-editing-label">All standard words</span></p>
                     </div>
                     <!-- Apply for All checkbox -->
-                    <div class="px-3 py-1.5 border-b border-white/10 flex-shrink-0">
+                    <div class="px-3 py-1.5 border-b border-white/10 flex-shrink-0" id="standard-apply-all-wrap">
                         <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                             <input type="checkbox" id="standard-apply-all" class="accent-primary w-3.5 h-3.5" checked/>
                             Apply for all standard words
                         </label>
+                    </div>
+                    <!-- Use Global Style button (hidden by default, shown when apply_for_all is unchecked) -->
+                    <div class="px-3 py-1.5 border-b border-white/10 flex-shrink-0 hidden" id="standard-use-global-wrap">
+                        <button id="btn-use-global-style" class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-amber-600/20 border border-amber-500/40 rounded-lg text-amber-200 hover:bg-amber-600/30 transition-colors">
+                            <span class="material-symbols-outlined" style="font-size:14px">sync</span> Use Global Style
+                        </button>
                     </div>
                     <!-- All: Text / Templates / Animation Tabs -->
                     <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
@@ -295,6 +301,25 @@
                                 </div>
                             </div>
                         </details>
+
+                        <!-- §7 Position Grid (visible only when a word/segment is selected) -->
+                        <details class="style-group hidden" id="standard-position-group">
+                            <summary class="style-group-header">📍 Position</summary>
+                            <div class="style-group-body">
+                                <p class="text-[10px] text-slate-500 mb-2">Click to set position for selected segment or word</p>
+                                <div class="grid grid-cols-3 gap-1" id="position-grid">
+                                    <button class="pos-grid-btn" data-pos="top-left" title="Top Left">↖</button>
+                                    <button class="pos-grid-btn" data-pos="top-center" title="Top Center">↑</button>
+                                    <button class="pos-grid-btn" data-pos="top-right" title="Top Right">↗</button>
+                                    <button class="pos-grid-btn" data-pos="middle-left" title="Middle Left">←</button>
+                                    <button class="pos-grid-btn" data-pos="center" title="Center">●</button>
+                                    <button class="pos-grid-btn" data-pos="middle-right" title="Middle Right">→</button>
+                                    <button class="pos-grid-btn" data-pos="bottom-left" title="Bottom Left">↙</button>
+                                    <button class="pos-grid-btn active" data-pos="bottom-center" title="Bottom Center">↓</button>
+                                    <button class="pos-grid-btn" data-pos="bottom-right" title="Bottom Right">↘</button>
+                                </div>
+                            </div>
+                        </details>
                     </div>
 
                     <!-- All: Templates Panel -->
@@ -335,6 +360,12 @@
                             <input type="checkbox" id="specials-apply-all" class="accent-primary w-3.5 h-3.5" checked/>
                             <span id="specials-apply-all-label">Apply for all highlighted words</span>
                         </label>
+                    </div>
+                    <!-- Use Global Style button for Highlight/Spotlight (hidden by default) -->
+                    <div class="px-3 py-1.5 border-b border-white/10 flex-shrink-0 hidden" id="specials-use-global-wrap">
+                        <button id="btn-specials-use-global-style" class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-amber-600/20 border border-amber-500/40 rounded-lg text-amber-200 hover:bg-amber-600/30 transition-colors">
+                            <span class="material-symbols-outlined" style="font-size:14px">sync</span> Use Global Style
+                        </button>
                     </div>
                     <!-- Word list in this marker group -->
                     <div class="px-3 py-2 border-b border-white/10 flex-shrink-0 max-h-24 overflow-y-auto" id="specials-word-list">
@@ -736,9 +767,9 @@
     <button class="hidden" id="ctx-remove-group"></button>
 </div>
 
-<script src="/static/js/api.js?v=4"></script>
-<script src="/static/js/preview.js?v=3"></script>
-<script src="/static/js/timeline.js?v=9"></script>
-<script src="/static/js/editor.js?v=6"></script>
+<script src="/static/js/api.js?v=5"></script>
+<script src="/static/js/preview.js?v=5"></script>
+<script src="/static/js/timeline.js?v=10"></script>
+<script src="/static/js/editor.js?v=9"></script>
 </body>
 </html>

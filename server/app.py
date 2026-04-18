@@ -88,7 +88,7 @@ async def editor_page(project_id: int):
     """Serve editor page."""
     editor_path = os.path.join(WEB_DIR, "editor.html")
     if os.path.exists(editor_path):
-        return FileResponse(editor_path)
+        return FileResponse(editor_path, headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
     raise HTTPException(404, "Editor page not found")
 
 

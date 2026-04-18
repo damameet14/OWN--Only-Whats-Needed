@@ -372,10 +372,14 @@ def _render_subtitle_on_frame(
     if seg is None:
         return
 
-    anim_type = AnimationType(track.animation_type)
+    anim_type_str = getattr(seg, 'animation_type', None) or track.animation_type
+    anim_dur = getattr(seg, 'animation_duration', None)
+    if anim_dur is None:
+        anim_dur = track.animation_duration
+    anim_type = AnimationType(anim_type_str)
     anim_state = compute_animation_state(
         anim_type, seg, current_time,
-        anim_duration=track.animation_duration,
+        anim_duration=anim_dur,
         frame_height=float(h),
     )
 
@@ -442,8 +446,13 @@ def _paint_subtitle(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, 
 
 def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
     """Render each word individually with its style, with text-box wrapping."""
-    pos_x = track.position_x
-    pos_y = track.position_y
+    # Resolve per-segment position (fallback to track)
+    pos_x = getattr(seg, 'position_x', None)
+    if pos_x is None:
+        pos_x = track.position_x
+    pos_y = getattr(seg, 'position_y', None)
+    if pos_y is None:
+        pos_y = track.position_y
     seg_style = seg.style
     box_w = track.text_box_width * frame_w  # max line width in pixels
     line_height_mult = getattr(seg_style, 'line_height', 1.2)
@@ -569,13 +578,19 @@ def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack,
 def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
     """Paint subtitle text as a uniform block with text-box wrapping."""
     style = seg.style
-    pos_x = track.position_x
-    pos_y = track.position_y
+    # Resolve per-segment position (fallback to track)
+    pos_x = getattr(seg, 'position_x', None)
+    if pos_x is None:
+        pos_x = track.position_x
+    pos_y = getattr(seg, 'position_y', None)
+    if pos_y is None:
+        pos_y = track.position_y
     box_w = track.text_box_width * frame_w
 
     font = _get_font(style.font_family, style.font_size, style.font_weight, style.font_style)
 
-    anim_type = AnimationType(track.animation_type)
+    anim_type_str = getattr(seg, 'animation_type', None) or track.animation_type
+    anim_type = AnimationType(anim_type_str)
     if anim_type == AnimationType.TYPEWRITER and anim_state.visible_char_count >= 0:
         full_text = seg.text[:anim_state.visible_char_count]
     else:

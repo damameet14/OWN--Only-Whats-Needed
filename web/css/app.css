@@ -286,3 +286,30 @@ select option {
 .style-color:hover {
     border-color: var(--primary);
 }
+
+/* ── Position Grid ────────────────────────────────────────────────────── */
+.pos-grid-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    aspect-ratio: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.pos-grid-btn:hover {
+    background: rgba(255, 231, 77, 0.1);
+    border-color: rgba(255, 231, 77, 0.3);
+    color: var(--text-primary);
+}
+.pos-grid-btn.active {
+    background: rgba(255, 231, 77, 0.2);
+    border-color: var(--primary);
+    color: var(--primary);
+    box-shadow: 0 0 8px rgba(255, 231, 77, 0.15);
+}

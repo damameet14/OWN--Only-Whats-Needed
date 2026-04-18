@@ -82,19 +82,20 @@ class SubtitlePreview {
 
         // Draw handle only when a subtitle is visible and selected
         if (activeSeg && this._boxSelected) {
-            this._drawHandle(ctx, track, w, h);
+            this._drawHandle(ctx, track, w, h, activeSeg);
         }
 
         if (!activeSeg) return;
 
-        const posX = track.position_x ?? 0.5;
-        const posY = track.position_y ?? 0.9;
+        // Resolve per-segment position (fallback to track)
+        const posX = activeSeg.position_x ?? track.position_x ?? 0.5;
+        const posY = activeSeg.position_y ?? track.position_y ?? 0.9;
 
-        // Compute animation state
+        // Resolve per-segment animation (fallback to track)
         const segStart = activeSeg.words[0]?.start_time ?? 0;
         const segEnd = activeSeg.words[activeSeg.words.length - 1]?.end_time ?? 0;
-        const animType = track.animation_type || 'none';
-        const animDur = track.animation_duration ?? 0.3;
+        const animType = activeSeg.animation_type ?? track.animation_type ?? 'none';
+        const animDur = activeSeg.animation_duration ?? track.animation_duration ?? 0.3;
         const animState = computeAnimState(animType, currentTime, segStart, segEnd, animDur, h);
 
         if (animState.opacity <= 0) return;
@@ -117,17 +118,17 @@ class SubtitlePreview {
 
     // ── Draggable handle ───────────────────────────────────────────────────────
 
-    _getHandleX(track, w) {
+    _getHandleX(track, w, activeSeg) {
         const boxWidth = track.text_box_width ?? 0.8;
-        const posX = track.position_x ?? 0.5;
+        const posX = (activeSeg?.position_x ?? track.position_x ?? 0.5);
         const halfBox = boxWidth * w / 2;
         return posX * w + halfBox;
     }
 
-    _drawHandle(ctx, track, w, h) {
-        const hx = this._getHandleX(track, w);
+    _drawHandle(ctx, track, w, h, activeSeg) {
+        const hx = this._getHandleX(track, w, activeSeg);
         const boxWidth = track.text_box_width ?? 0.8;
-        const posX = track.position_x ?? 0.5;
+        const posX = (activeSeg?.position_x ?? track.position_x ?? 0.5);
         const halfBox = boxWidth * w / 2;
         const lx = posX * w - halfBox;
         
@@ -166,7 +167,7 @@ class SubtitlePreview {
             const rect = cvs.getBoundingClientRect();
             const x = clientX - rect.left;
             const w = cvs.width;
-            const hx = this._getHandleX(this.subtitleTrack, w);
+            const hx = this._getHandleX(this.subtitleTrack, w, null);
             return Math.abs(x - hx) <= 12;
         };
 

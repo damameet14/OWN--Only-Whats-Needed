@@ -104,21 +104,28 @@ async function loadProject(id) {
                 if (sel && sel.track === 'text') {
                     selectedWords = [];
                     if (subtitleTrack && subtitleTrack.segments && subtitleTrack.segments[sel.index]) {
-                        const words = subtitleTrack.segments[sel.index].words;
+                        const seg = subtitleTrack.segments[sel.index];
+                        const words = seg.words;
                         if (words) {
                             for (let i = 0; i < words.length; i++) {
                                 selectedWords.push({ segmentIndex: sel.index, wordIndex: i });
                             }
                         }
+                        // Seek to segment midpoint so it's visible in preview
+                        const segStart = words?.[0]?.start_time || 0;
+                        const segEnd = words?.[words.length - 1]?.end_time || segStart;
+                        video.currentTime = (segStart + segEnd) / 2;
                     }
                     updateWordSelectionUI();
                     highlightSegment(sel.index);
+                    syncApplyForAllUI();
                     const targetEl = document.querySelector(`.segment-item[data-idx="${sel.index}"]`);
                     if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 } else {
                     selectedWords = [];
                     updateWordSelectionUI();
                     highlightSegment(-1);
+                    syncApplyForAllUI();
                 }
             };
         }
@@ -145,8 +152,10 @@ async function loadProject(id) {
             canvas.addEventListener('mousedown', (e) => {
                 if (!subtitleTrack) return;
                 const rect = canvas.getBoundingClientRect();
-                const posX = subtitleTrack.position_x || 0.5;
-                const posY = subtitleTrack.position_y || 0.9;
+                // Resolve position based on selected segment (if apply_for_all is off)
+                const selSeg = getSelectedSegment();
+                const posX = (selSeg && !selSeg.apply_for_all && selSeg.position_x != null) ? selSeg.position_x : (subtitleTrack.position_x || 0.5);
+                const posY = (selSeg && !selSeg.apply_for_all && selSeg.position_y != null) ? selSeg.position_y : (subtitleTrack.position_y || 0.9);
                 const clickX = (e.clientX - rect.left) / rect.width;
                 const clickY = (e.clientY - rect.top) / rect.height;
 
@@ -167,8 +176,15 @@ async function loadProject(id) {
                 x = Math.max(0.05, Math.min(0.95, x));
                 y = Math.max(0.05, Math.min(0.95, y));
 
-                subtitleTrack.position_x = x;
-                subtitleTrack.position_y = y;
+                // Scope dragging to selected segment if it's opted out of global
+                const selSeg = getSelectedSegment();
+                if (selSeg && !selSeg.apply_for_all) {
+                    selSeg.position_x = x;
+                    selSeg.position_y = y;
+                } else {
+                    subtitleTrack.position_x = x;
+                    subtitleTrack.position_y = y;
+                }
 
                 const posYSlider = document.getElementById('style-pos-y');
                 const posYVal = document.getElementById('pos-y-val');
@@ -1205,6 +1221,110 @@ let selectedWords = [];
 // Currently active marker tab: 'highlight' | 'spotlight'
 let currentMarkerTab = 'highlight';
 
+// Position preset to normalized (x, y) mapping
+const POSITION_PRESETS = {
+    'top-left':      { x: 0.15, y: 0.12 },
+    'top-center':    { x: 0.50, y: 0.12 },
+    'top-right':     { x: 0.85, y: 0.12 },
+    'middle-left':   { x: 0.15, y: 0.50 },
+    'center':        { x: 0.50, y: 0.50 },
+    'middle-right':  { x: 0.85, y: 0.50 },
+    'bottom-left':   { x: 0.15, y: 0.90 },
+    'bottom-center': { x: 0.50, y: 0.90 },
+    'bottom-right':  { x: 0.85, y: 0.90 },
+};
+
+/** Get the currently selected segment object (if exactly one whole segment is selected). */
+function getSelectedSegment() {
+    if (!subtitleTrack || selectedWords.length === 0) return null;
+    const segIdx = selectedWords[0].segmentIndex;
+    // All selected words must belong to the same segment
+    if (!selectedWords.every(w => w.segmentIndex === segIdx)) return null;
+    return subtitleTrack.segments[segIdx] || null;
+}
+
+/** Get the segment index of the current selection (or -1). */
+function getSelectedSegmentIndex() {
+    if (selectedWords.length === 0) return -1;
+    return selectedWords[0].segmentIndex;
+}
+
+/** Sync the Apply-for-All checkbox and Use Global Style button with the current selection. */
+function syncApplyForAllUI() {
+    const stdChk = document.getElementById('standard-apply-all');
+    const stdGlobalWrap = document.getElementById('standard-use-global-wrap');
+    const posGroup = document.getElementById('standard-position-group');
+    const specChk = document.getElementById('specials-apply-all');
+    const specGlobalWrap = document.getElementById('specials-use-global-wrap');
+
+    // Standard tab: per-segment apply_for_all
+    const seg = getSelectedSegment();
+    if (seg && stdChk) {
+        stdChk.checked = seg.apply_for_all !== false;
+        if (stdGlobalWrap) stdGlobalWrap.classList.toggle('hidden', seg.apply_for_all !== false);
+    } else if (stdChk) {
+        stdChk.checked = true;
+        if (stdGlobalWrap) stdGlobalWrap.classList.add('hidden');
+    }
+
+    // Show position grid when a segment or word is selected
+    if (posGroup) {
+        posGroup.classList.toggle('hidden', selectedWords.length === 0);
+        // Highlight active grid button
+        if (selectedWords.length > 0) {
+            updatePositionGridUI();
+        }
+    }
+
+    // Specials tab: per-word apply_for_all (via style_override presence)
+    if (specChk && specGlobalWrap) {
+        const word = getSelectedWord();
+        if (word && (word.marker === 'highlight' || word.marker === 'spotlight')) {
+            const hasOverride = !!word.style_override;
+            specChk.checked = !hasOverride;
+            specGlobalWrap.classList.toggle('hidden', !hasOverride);
+        } else {
+            specChk.checked = true;
+            specGlobalWrap.classList.add('hidden');
+        }
+    }
+}
+
+/** Update position grid UI to reflect current selection's position. */
+function updatePositionGridUI() {
+    const grid = document.getElementById('position-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.pos-grid-btn').forEach(btn => btn.classList.remove('active'));
+
+    // Check for single word with position_preset
+    if (selectedWords.length === 1) {
+        const word = getSelectedWord();
+        if (word && word.position_preset) {
+            const btn = grid.querySelector(`[data-pos="${word.position_preset}"]`);
+            if (btn) btn.classList.add('active');
+            return;
+        }
+    }
+
+    // Check for segment position
+    const seg = getSelectedSegment();
+    if (seg) {
+        const px = seg.position_x ?? subtitleTrack?.position_x ?? 0.5;
+        const py = seg.position_y ?? subtitleTrack?.position_y ?? 0.9;
+        // Find closest preset
+        let closestPreset = 'bottom-center';
+        let closestDist = Infinity;
+        for (const [preset, coords] of Object.entries(POSITION_PRESETS)) {
+            const dist = Math.abs(coords.x - px) + Math.abs(coords.y - py);
+            if (dist < closestDist) { closestDist = dist; closestPreset = preset; }
+        }
+        if (closestDist < 0.15) {
+            const btn = grid.querySelector(`[data-pos="${closestPreset}"]`);
+            if (btn) btn.classList.add('active');
+        }
+    }
+}
+
 // Initialize the new styling system
 function initStylingSystem() {
     initTabSwitching(); // Left panel tabs (Segments / Full Text)
@@ -1214,6 +1334,128 @@ function initStylingSystem() {
     initMarkerStyleControls();
     initGlobalStyleControls();
     initDeselectOnEscape();
+    initApplyForAllUI();
+    initPositionGrid();
+}
+
+/** Wire up Apply-for-All checkboxes and Use Global Style buttons. */
+function initApplyForAllUI() {
+    // Standard: Apply for all checkbox
+    const stdChk = document.getElementById('standard-apply-all');
+    if (stdChk) {
+        stdChk.addEventListener('change', () => {
+            const seg = getSelectedSegment();
+            if (seg) {
+                seg.apply_for_all = stdChk.checked;
+                syncApplyForAllUI();
+                autoSave();
+            }
+        });
+    }
+
+    // Standard: Use Global Style button
+    const btnUseGlobal = document.getElementById('btn-use-global-style');
+    if (btnUseGlobal) {
+        btnUseGlobal.addEventListener('click', () => {
+            const seg = getSelectedSegment();
+            if (!seg) return;
+            if (!confirm('This will reset this segment\'s custom style to match the global style. All custom position and style changes will be lost. Continue?')) return;
+            seg.style = JSON.parse(JSON.stringify(subtitleTrack.global_style || {}));
+            seg.apply_for_all = true;
+            seg.position_x = null;
+            seg.position_y = null;
+            seg.animation_type = null;
+            seg.animation_duration = null;
+            syncApplyForAllUI();
+            applyTrackToControls(subtitleTrack);
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+            showToast('Segment reset to global style');
+        });
+    }
+
+    // Specials: Apply for all checkbox
+    const specChk = document.getElementById('specials-apply-all');
+    if (specChk) {
+        specChk.addEventListener('change', () => {
+            const word = getSelectedWord();
+            if (!word) return;
+            if (specChk.checked) {
+                // Remove override → use global marker style
+                word.style_override = null;
+            } else {
+                // Create override from current marker style
+                const key = currentMarkerTab === 'spotlight' ? 'spotlight_style' : 'highlight_style';
+                const baseStyle = subtitleTrack[key] || subtitleTrack.global_style || {};
+                word.style_override = JSON.parse(JSON.stringify(baseStyle));
+            }
+            syncApplyForAllUI();
+            loadMarkerStyleToControls(currentMarkerTab);
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+        });
+    }
+
+    // Specials: Use Global Style button
+    const btnSpecGlobal = document.getElementById('btn-specials-use-global-style');
+    if (btnSpecGlobal) {
+        btnSpecGlobal.addEventListener('click', () => {
+            const word = getSelectedWord();
+            if (!word) return;
+            const markerName = currentMarkerTab === 'spotlight' ? 'Spotlight' : 'Highlight';
+            if (!confirm(`This will reset this word\'s custom style to match the ${markerName} global style. Continue?`)) return;
+            word.style_override = null;
+            word.position_preset = null;
+            word.animation_type = null;
+            word.animation_duration = null;
+            syncApplyForAllUI();
+            loadMarkerStyleToControls(currentMarkerTab);
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+            showToast(`Word reset to ${markerName} global style`);
+        });
+    }
+}
+
+/** Wire up the 3×3 position grid. */
+function initPositionGrid() {
+    const grid = document.getElementById('position-grid');
+    if (!grid) return;
+    grid.addEventListener('click', (e) => {
+        const btn = e.target.closest('.pos-grid-btn');
+        if (!btn) return;
+        const preset = btn.dataset.pos;
+        if (!preset || !POSITION_PRESETS[preset]) return;
+        const { x, y } = POSITION_PRESETS[preset];
+
+        // If single word selected, set word.position_preset
+        if (selectedWords.length === 1) {
+            const word = getSelectedWord();
+            if (word) {
+                word.position_preset = preset;
+                preview?.setTrack(subtitleTrack);
+                autoSave();
+                updatePositionGridUI();
+                return;
+            }
+        }
+
+        // If segment selected, set segment position
+        const seg = getSelectedSegment();
+        if (seg) {
+            if (seg.apply_for_all !== false) {
+                // Apply to global track position
+                subtitleTrack.position_x = x;
+                subtitleTrack.position_y = y;
+            } else {
+                seg.position_x = x;
+                seg.position_y = y;
+            }
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+            updatePositionGridUI();
+        }
+    });
 }
 
 // Main tab switching (Standard / Highlight / Spotlight → maps to Style/Video/Presets sections)
@@ -1341,7 +1583,7 @@ function updateMarkersPanel() {
                 `<span class="text-[11px] px-1.5 py-0.5 rounded border ${chipColor} cursor-pointer hover:opacity-80"
                        data-seg="${mw.segIdx}" data-word="${mw.wordIdx}">${escapeHtml(mw.word)}</span>`
             ).join('');
-            // Click chip → select that word + seek
+            // Click chip → select that word + seek to midpoint
             chipsContainer.querySelectorAll('[data-seg]').forEach(chip => {
                 chip.addEventListener('click', () => {
                     const si = parseInt(chip.dataset.seg);
@@ -1350,7 +1592,11 @@ function updateMarkersPanel() {
                     updateWordSelectionUI();
                     updateEditingIndicators();
                     const w = subtitleTrack.segments[si]?.words?.[wi];
-                    if (w) document.getElementById('video-player').currentTime = w.start_time;
+                    if (w) {
+                        const midTime = (w.start_time + w.end_time) / 2;
+                        document.getElementById('video-player').currentTime = midTime;
+                        if (timeline) { timeline.currentTime = midTime; timeline.draw(); }
+                    }
                 });
             });
         }
@@ -1368,9 +1614,25 @@ function updateEditingIndicators() {
     const stdLabel = document.getElementById('standard-editing-label');
     if (stdLabel) {
         if (selectedWords.length > 0) {
-            const firstWord = getSelectedWord();
-            if (firstWord && (firstWord.marker || 'standard') === 'standard') {
-                stdLabel.textContent = `"${firstWord.word}" (segment ${selectedWords[0].segmentIndex + 1})`;
+            const segIdx = selectedWords[0].segmentIndex;
+            const seg = subtitleTrack?.segments?.[segIdx];
+            if (seg) {
+                // Check if all words of this segment are selected
+                const segWordCount = seg.words?.length || 0;
+                const selectedInSeg = selectedWords.filter(w => w.segmentIndex === segIdx).length;
+                if (selectedInSeg === segWordCount && segWordCount > 1) {
+                    // Whole segment selected — show all words
+                    const text = seg.words.map(w => w.word).join(' ');
+                    stdLabel.textContent = `"${text}" (segment ${segIdx + 1})`;
+                } else {
+                    // Individual word(s) selected
+                    const firstWord = getSelectedWord();
+                    if (firstWord && (firstWord.marker || 'standard') === 'standard') {
+                        stdLabel.textContent = `"${firstWord.word}" (segment ${segIdx + 1})`;
+                    } else {
+                        stdLabel.textContent = 'All standard words';
+                    }
+                }
             } else {
                 stdLabel.textContent = 'All standard words';
             }
@@ -1394,6 +1656,9 @@ function updateEditingIndicators() {
             specLabel.textContent = `All ${markerName.toLowerCase()} words`;
         }
     }
+
+    // Always sync the Apply-for-All UI state
+    syncApplyForAllUI();
 }
 
 // Keep backward compat alias
@@ -1494,13 +1759,21 @@ function handleWordClick(wordEl, isMultiSelect) {
 
     updateWordSelectionUI();
 
-    // Auto-switch to the correct marker tab based on the word's marker
-    if (selectedWords.length > 0) {
-        const word = subtitleTrack?.segments[segmentIndex]?.words?.[wordIndex];
-        if (word) {
-            const marker = word.marker || 'standard';
-            switchToMarkerTab(marker);
+    // Seek to word midpoint so it's visible in preview
+    const word = subtitleTrack?.segments[segmentIndex]?.words?.[wordIndex];
+    if (word) {
+        const midTime = (word.start_time + word.end_time) / 2;
+        document.getElementById('video-player').currentTime = midTime;
+        if (timeline) {
+            timeline.currentTime = midTime;
+            timeline.draw();
         }
+    }
+
+    // Auto-switch to the correct marker tab based on the word's marker
+    if (selectedWords.length > 0 && word) {
+        const marker = word.marker || 'standard';
+        switchToMarkerTab(marker);
     }
 
     updateSpecialsPanel();
@@ -2027,35 +2300,29 @@ function initGlobalStyleControls() {
 function updateGlobalStyle(property, value) {
     if (!subtitleTrack) return;
 
-    const applyAllChk = document.getElementById('standard-apply-all');
-    const applyAll = applyAllChk ? applyAllChk.checked : true;
+    // Get the selected segment (if any)
+    const selSeg = getSelectedSegment();
+    const selSegIdx = getSelectedSegmentIndex();
 
-    if (applyAll || selectedWords.length === 0) {
-        // Update global style
+    if (selSeg && selSeg.apply_for_all === false) {
+        // Segment has opted out of global — update only this segment's style
+        if (selSeg.style) {
+            selSeg.style[property] = value;
+        }
+    } else {
+        // apply_for_all is true or no selection — update global and all participating segments
         if (subtitleTrack.global_style) {
             subtitleTrack.global_style[property] = value;
         }
 
-        // Update all segment styles
+        // Update all segment styles that have apply_for_all === true
         if (subtitleTrack.segments) {
             for (const seg of subtitleTrack.segments) {
-                if (seg.style) {
+                if (seg.apply_for_all !== false && seg.style) {
                     seg.style[property] = value;
                 }
             }
         }
-    } else {
-        selectedWords.forEach(({ segmentIndex, wordIndex }) => {
-            const seg = subtitleTrack.segments[segmentIndex];
-            if (seg && seg.words && seg.words[wordIndex]) {
-                const word = seg.words[wordIndex];
-                if (!word.style_override) {
-                    const baseStyle = preview?.getWordStyle({ ...word, style_override: null }, seg.style || subtitleTrack.global_style, subtitleTrack) || subtitleTrack.global_style;
-                    word.style_override = JSON.parse(JSON.stringify(baseStyle || {}));
-                }
-                word.style_override[property] = value;
-            }
-        });
     }
 
     preview?.setTrack(subtitleTrack);
@@ -2081,12 +2348,24 @@ function initDeselectOnEscape() {
         if (e.target.closest('#all-subsection') || e.target.closest('#specials-subsection')) {
             return;
         }
-        // Don't deselect if clicking on subsection tabs
-        if (e.target.closest('[data-sub-tab]')) {
+        // Don't deselect if clicking on subsection tabs or marker tabs
+        if (e.target.closest('[data-sub-tab]') || e.target.closest('[data-main-marker-tab]')) {
             return;
         }
         // Don't deselect if clicking on main tabs
         if (e.target.closest('[data-main-tab]')) {
+            return;
+        }
+        // Don't deselect if clicking on the timeline (selection is handled by timeline.onSelect)
+        if (e.target.closest('#timeline-canvas') || e.target.closest('#timeline-wrapper') || e.target.closest('#timeline-container')) {
+            return;
+        }
+        // Don't deselect if clicking inside the segments panel (word/segment clicks handle their own selection)
+        if (e.target.closest('#segments-panel') || e.target.closest('.segment-item')) {
+            return;
+        }
+        // Don't deselect if clicking on the subtitle canvas (dragging)
+        if (e.target.closest('#subtitle-canvas')) {
             return;
         }
         // Deselect when clicking elsewhere
@@ -2140,15 +2419,33 @@ populateSegments = function(segments) {
             </div>`;
     }).join('');
 
-    // Segment click — seek
+    // Segment click — select all words + seek to midpoint
     panel.querySelectorAll('.segment-item').forEach(item => {
         item.addEventListener('click', (e) => {
             if (e.target.closest('.word-item')) return;
+            e.stopPropagation();
             const idx = parseInt(item.dataset.idx);
             const seg = segments[idx];
-            document.getElementById('video-player').currentTime = seg.words?.[0]?.start_time || 0;
-            if (timeline) { timeline.selectedIndex = { track: 'text', index: idx }; timeline.draw(); }
+
+            // Populate selectedWords with ALL words of this segment
+            selectedWords = [];
+            if (seg.words) {
+                for (let i = 0; i < seg.words.length; i++) {
+                    selectedWords.push({ segmentIndex: idx, wordIndex: i });
+                }
+            }
+
+            const segStart = seg.words?.[0]?.start_time || 0;
+            const segEnd = seg.words?.[seg.words.length - 1]?.end_time || segStart;
+            document.getElementById('video-player').currentTime = (segStart + segEnd) / 2;
+            if (timeline) {
+                timeline.selectedIndex = { track: 'text', index: idx };
+                timeline.currentTime = (segStart + segEnd) / 2;
+                timeline.draw();
+            }
+            updateWordSelectionUI();
             highlightSegment(idx);
+            syncApplyForAllUI();
         });
     });
 
@@ -2173,15 +2470,32 @@ function attachWordSelectionListeners() {
             handleWordClick(wordEl, e.ctrlKey || e.metaKey);
             return;
         }
-        // Segment-level click — seek to segment start
+        // Segment-level click — select all words + seek to segment midpoint
         const segItem = e.target.closest('.segment-item');
         if (segItem) {
+            e.stopPropagation();
             const idx = parseInt(segItem.dataset.idx);
             const seg = subtitleTrack?.segments?.[idx];
             if (seg) {
-                document.getElementById('video-player').currentTime = seg.words?.[0]?.start_time || 0;
-                if (timeline) { timeline.selectedIndex = { track: 'text', index: idx }; timeline.draw(); }
+                // Populate selectedWords with ALL words of this segment
+                selectedWords = [];
+                if (seg.words) {
+                    for (let i = 0; i < seg.words.length; i++) {
+                        selectedWords.push({ segmentIndex: idx, wordIndex: i });
+                    }
+                }
+
+                const segStart = seg.words?.[0]?.start_time || 0;
+                const segEnd = seg.words?.[seg.words.length - 1]?.end_time || segStart;
+                document.getElementById('video-player').currentTime = (segStart + segEnd) / 2;
+                if (timeline) {
+                    timeline.selectedIndex = { track: 'text', index: idx };
+                    timeline.currentTime = (segStart + segEnd) / 2;
+                    timeline.draw();
+                }
+                updateWordSelectionUI();
                 highlightSegment(idx);
+                syncApplyForAllUI();
             }
         }
     });
