@@ -96,8 +96,10 @@ class SubtitleTimeline {
                         if (x >= sx && x <= sx + sw) {
                             this.selectedIndex = { track: clickedTrack, index: i };
                             if (this.onSelect) this.onSelect({ track: clickedTrack, index: i });
-                            if (this.onSeek) this.onSeek(startTime);
-                            this.currentTime = startTime; // Immediately update timeline visual playhead too
+                            // Seek to segment midpoint so the content is visible in preview
+                            const midTime = (startTime + endTime) / 2;
+                            if (this.onSeek) this.onSeek(midTime);
+                            this.currentTime = midTime;
                             this.draw();
                             return true; // Clicked segment, don't drag playhead
                         }

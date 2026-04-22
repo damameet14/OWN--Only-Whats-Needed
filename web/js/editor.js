@@ -1234,13 +1234,18 @@ const POSITION_PRESETS = {
     'bottom-right':  { x: 0.85, y: 0.90 },
 };
 
-/** Get the currently selected segment object (if exactly one whole segment is selected). */
+/** Get the currently selected segment object (only when ALL words of the segment are selected). */
 function getSelectedSegment() {
     if (!subtitleTrack || selectedWords.length === 0) return null;
     const segIdx = selectedWords[0].segmentIndex;
     // All selected words must belong to the same segment
     if (!selectedWords.every(w => w.segmentIndex === segIdx)) return null;
-    return subtitleTrack.segments[segIdx] || null;
+    const seg = subtitleTrack.segments[segIdx];
+    if (!seg) return null;
+    // Only return the segment if ALL words of the segment are selected
+    const segWordCount = seg.words?.length || 0;
+    if (selectedWords.length !== segWordCount) return null;
+    return seg;
 }
 
 /** Get the segment index of the current selection (or -1). */
@@ -1875,6 +1880,8 @@ function setWordMarker(marker) {
         }
     });
 
+    // Re-render Segments panel so marker chip colours update immediately
+    populateSegments(subtitleTrack.segments);
     timeline?.draw();
     preview?.setTrack(subtitleTrack);
     updateWordSelectionUI();

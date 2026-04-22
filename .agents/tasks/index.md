@@ -7,6 +7,7 @@
 - [task-ux-fixes.md](file:///c:/Users/damam/OneDrive/Desktop/stt_vosk/.agents/tasks/task-ux-fixes.md) — Completed — Owner: agent — Priority: Normal
 - [task-marker-overhaul.md](file:///c:/Users/damam/OneDrive/Desktop/stt_vosk/.agents/tasks/task-marker-overhaul.md) — Complete — Owner: agent — Priority: High
 - task-per-segment-style-overhaul.md — In Progress — Owner: agent — Priority: High
+- [task-segment-word-fixes.md](file:///c:/Users/damam/OneDrive/Desktop/stt_vosk/.agents/tasks/task-segment-word-fixes.md) — Complete — Owner: agent — Priority: Normal
 
 
 ## Not Started

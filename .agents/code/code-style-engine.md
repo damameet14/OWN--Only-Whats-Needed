@@ -52,6 +52,7 @@ Comprehensive text styling system supporting 6 categories: Font, Fill, Stroke, S
 - `_paint_subtitle_uniform()`: resolves per-segment position and animation
 
 ## Changelog
+- 2026-04-18: Fixed getSelectedSegment() to require full segment selection, setWordMarker() to re-render Segments panel chips, and timeline segment click to seek to midpoint.
 - 2026-04-18: Per-segment Apply-for-All overhaul — segments can independently opt out of global style. Added Use Global Style button, position grid, per-segment position/animation. Fixed timeline indicator and seeking behavior.
 - 2026-04-05: Added deterministic UI-only group highlighting to Timeline and Segments section
 - 2026-04-05: Skia-Python Rendering Engine replacement
