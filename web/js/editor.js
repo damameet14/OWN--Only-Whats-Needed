@@ -145,60 +145,30 @@ async function loadProject(id) {
             applyTrackToControls(subtitleTrack);
         }
 
-        // Subtitle Canvas Dragging (only set up once)
+        // Subtitle Canvas Dragging and Interactions
         if (!canvas.hasAttribute('data-drag-setup')) {
             canvas.setAttribute('data-drag-setup', 'true');
-            let isDraggingSubtitle = false;
-            canvas.addEventListener('mousedown', (e) => {
-                if (!subtitleTrack) return;
-                const rect = canvas.getBoundingClientRect();
-                // Resolve position based on selected segment (if apply_for_all is off)
-                const selSeg = getSelectedSegment();
-                const posX = (selSeg && !selSeg.apply_for_all && selSeg.position_x != null) ? selSeg.position_x : (subtitleTrack.position_x || 0.5);
-                const posY = (selSeg && !selSeg.apply_for_all && selSeg.position_y != null) ? selSeg.position_y : (subtitleTrack.position_y || 0.9);
-                const clickX = (e.clientX - rect.left) / rect.width;
-                const clickY = (e.clientY - rect.top) / rect.height;
-
-                // Rough hit box for subtitle text area
-                if (Math.abs(clickX - posX) < 0.3 && Math.abs(clickY - posY) < 0.2) {
-                    isDraggingSubtitle = true;
-                } else {
-                    document.getElementById('btn-play').click();
-                }
-            });
-
-            window.addEventListener('mousemove', (e) => {
-                if (!isDraggingSubtitle || !subtitleTrack) return;
-                const rect = canvas.getBoundingClientRect();
-                let x = (e.clientX - rect.left) / rect.width;
-                let y = (e.clientY - rect.top) / rect.height;
-
-                x = Math.max(0.05, Math.min(0.95, x));
-                y = Math.max(0.05, Math.min(0.95, y));
-
-                // Scope dragging to selected segment if it's opted out of global
-                const selSeg = getSelectedSegment();
-                if (selSeg && !selSeg.apply_for_all) {
-                    selSeg.position_x = x;
-                    selSeg.position_y = y;
-                } else {
-                    subtitleTrack.position_x = x;
-                    subtitleTrack.position_y = y;
-                }
-
-                const posYSlider = document.getElementById('style-pos-y');
-                const posYVal = document.getElementById('pos-y-val');
-                if (posYSlider) {
-                    posYSlider.value = Math.round(y * 100);
-                    posYVal.textContent = `${posYSlider.value}%`;
-                }
-                preview.setTrack(subtitleTrack);
-                autoSave();
-            });
-
-            window.addEventListener('mouseup', () => {
-                isDraggingSubtitle = false;
-            });
+            // preview.js now handles all bounding box and handle interactions.
+            // When clicking outside the box, we toggle play/pause.
+            if (preview) {
+                preview.onClickOutside = () => {
+                    document.getElementById('btn-play')?.click();
+                };
+                
+                // Also wire up autoSave for when preview changes properties
+                preview.onChange = () => {
+                    const selSeg = getSelectedSegment();
+                    const y = selSeg && !selSeg.apply_for_all && selSeg.position_y != null ? selSeg.position_y : (subtitleTrack.position_y || 0.9);
+                    
+                    const posYSlider = document.getElementById('style-pos-y');
+                    const posYVal = document.getElementById('pos-y-val');
+                    if (posYSlider) {
+                        posYSlider.value = Math.round(y * 100);
+                        posYVal.textContent = `${posYSlider.value}%`;
+                    }
+                    autoSave();
+                };
+            }
         }
 
     } catch (err) {

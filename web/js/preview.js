@@ -16,9 +16,15 @@ class SubtitlePreview {
         this.animationFrame = null;
 
         // --- Draggable text-box handle state ---
-        this._handleDragging = false;
-        this._handleCursor = 'ew-resize';
+        this._dragMode = null;
+        this._dragStartX = 0;
+        this._dragStartY = 0;
+        this._dragStartBBox = null;
         this._boxSelected = false;
+        this._lastBBox = null;
+
+        this.onClickOutside = null;
+        this.onChange = null;
 
         this._bindHandleEvents();
     }
@@ -80,10 +86,7 @@ class SubtitlePreview {
             }
         }
 
-        // Draw handle only when a subtitle is visible and selected
-        if (activeSeg && this._boxSelected) {
-            this._drawHandle(ctx, track, w, h, activeSeg);
-        }
+        this._lastBBox = null;
 
         if (!activeSeg) return;
 
@@ -114,93 +117,191 @@ class SubtitlePreview {
         }
 
         ctx.globalAlpha = 1;
+
+        // Draw bounding box and handles LAST so they sit on top of the text
+        if (activeSeg && this._boxSelected && this._lastBBox) {
+            this._drawHandles(ctx, track, w, h, activeSeg);
+        }
     }
 
-    // ── Draggable handle ───────────────────────────────────────────────────────
+    // ── Draggable Handles & Bounding Box ───────────────────────────────────────
 
-    _getHandleX(track, w, activeSeg) {
-        const boxWidth = track.text_box_width ?? 0.8;
-        const posX = (activeSeg?.position_x ?? track.position_x ?? 0.5);
-        const halfBox = boxWidth * w / 2;
-        return posX * w + halfBox;
-    }
-
-    _drawHandle(ctx, track, w, h, activeSeg) {
-        const hx = this._getHandleX(track, w, activeSeg);
-        const boxWidth = track.text_box_width ?? 0.8;
-        const posX = (activeSeg?.position_x ?? track.position_x ?? 0.5);
-        const halfBox = boxWidth * w / 2;
-        const lx = posX * w - halfBox;
-        
-        const lineTop = h * 0.05;
-        const lineBottom = h * 0.95;
+    _drawHandles(ctx, track, w, h, activeSeg) {
+        if (!this._lastBBox) return;
+        const { lx, rx, ty, by } = this._lastBBox;
 
         ctx.save();
-        ctx.setLineDash([6, 5]);
-        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#9b51e0'; // clean purple
+        ctx.lineWidth = 1.5;
         
         // Bounding box
         ctx.beginPath();
-        ctx.rect(lx, lineTop, hx - lx, lineBottom - lineTop);
+        ctx.rect(lx, ty, rx - lx, by - ty);
         ctx.stroke();
 
-        // Right Grip circle
-        const cy = h * 0.5;
-        ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(255,255,255,0.9)';
-        ctx.beginPath();
-        ctx.arc(hx, cy, 8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        // Handles
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#9b51e0';
+        ctx.lineWidth = 1.5;
 
+        const handles = [
+            { x: lx, y: ty }, { x: (lx+rx)/2, y: ty }, { x: rx, y: ty }, // Top
+            { x: lx, y: (ty+by)/2 }, { x: rx, y: (ty+by)/2 }, // Middle
+            { x: lx, y: by }, { x: (lx+rx)/2, y: by }, { x: rx, y: by } // Bottom
+        ];
+
+        for (const pt of handles) {
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
         ctx.restore();
     }
 
     _bindHandleEvents() {
         const cvs = this.canvas;
+        const HANDLE_RADIUS = 8;
 
-        const hitTest = (clientX) => {
-            if (!this.subtitleTrack) return false;
-            const rect = cvs.getBoundingClientRect();
-            const x = clientX - rect.left;
-            const w = cvs.width;
-            const hx = this._getHandleX(this.subtitleTrack, w, null);
-            return Math.abs(x - hx) <= 12;
+        const getActiveSeg = () => {
+            if (!this.subtitleTrack || !this.subtitleTrack.segments) return null;
+            const currentTime = this.video.currentTime;
+            for (const seg of this.subtitleTrack.segments) {
+                const startTime = seg.words.length > 0 ? seg.words[0].start_time : 0;
+                const endTime = seg.words.length > 0 ? seg.words[seg.words.length - 1].end_time : 0;
+                if (currentTime >= startTime && currentTime <= endTime) return seg;
+            }
+            return null;
+        };
+
+        const hitTest = (clientX, clientY) => {
+            if (!this._lastBBox) return null;
+            const { lx, rx, ty, by } = this._lastBBox;
+            const mx = (lx + rx) / 2;
+            const my = (ty + by) / 2;
+
+            if (this._boxSelected) {
+                const dist = (x1, y1) => Math.sqrt((clientX - x1)**2 + (clientY - y1)**2);
+                if (dist(lx, ty) <= HANDLE_RADIUS) return 'nw';
+                if (dist(rx, ty) <= HANDLE_RADIUS) return 'ne';
+                if (dist(lx, by) <= HANDLE_RADIUS) return 'sw';
+                if (dist(rx, by) <= HANDLE_RADIUS) return 'se';
+                if (dist(mx, ty) <= HANDLE_RADIUS) return 'n';
+                if (dist(mx, by) <= HANDLE_RADIUS) return 's';
+                if (dist(lx, my) <= HANDLE_RADIUS) return 'w';
+                if (dist(rx, my) <= HANDLE_RADIUS) return 'e';
+            }
+
+            if (clientX >= lx && clientX <= rx && clientY >= ty && clientY <= by) {
+                return 'center';
+            }
+            return null;
+        };
+
+        const getCursor = (mode) => {
+            switch(mode) {
+                case 'nw': case 'se': return 'nwse-resize';
+                case 'ne': case 'sw': return 'nesw-resize';
+                case 'n': case 's': return 'ns-resize';
+                case 'w': case 'e': return 'ew-resize';
+                case 'center': return 'move';
+                default: return 'default';
+            }
         };
 
         cvs.addEventListener('mousemove', (e) => {
-            if (this._handleDragging) {
-                // Update text_box_width
-                const rect = cvs.getBoundingClientRect();
-                const x = e.clientX - rect.left;
+            const rect = cvs.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (this._dragMode) {
+                const seg = getActiveSeg();
+                if (!seg) return;
+                const target = (seg && !seg.apply_for_all) ? seg : this.subtitleTrack;
+                
                 const w = cvs.width;
-                const track = this.subtitleTrack;
-                const posX = (track.position_x ?? 0.5) * w;
-                const newHalfBox = x - posX;
-                const newWidth = Math.max(0.1, Math.min(1.0, (newHalfBox * 2) / w));
-                track.text_box_width = newWidth;
-                if (this._onWidthChange) this._onWidthChange(newWidth);
+                const h = cvs.height;
+                const dx = x - this._dragStartX;
+                const dy = y - this._dragStartY;
+
+                let posX = target.position_x ?? this.subtitleTrack.position_x ?? 0.5;
+                let posY = target.position_y ?? this.subtitleTrack.position_y ?? 0.9;
+                let boxW = this.subtitleTrack.text_box_width ?? 0.8;
+
+                const { lx, rx, ty, by } = this._dragStartBBox;
+
+                if (this._dragMode === 'center') {
+                    posX = Math.max(0.05, Math.min(0.95, (this._dragStartBBox.mx + dx) / w));
+                    posY = Math.max(0.05, Math.min(0.95, (by + dy) / h));
+                } else {
+                    let newLx = lx;
+                    let newRx = rx;
+                    let newTy = ty;
+                    let newBy = by;
+
+                    if (this._dragMode.includes('w')) newLx += dx;
+                    if (this._dragMode.includes('e')) newRx += dx;
+                    if (this._dragMode.includes('n')) newTy += dy;
+                    if (this._dragMode.includes('s')) newBy += dy;
+
+                    if (this._dragMode.includes('w') || this._dragMode.includes('e')) {
+                        if (newRx - newLx < 50) {
+                            if (this._dragMode.includes('w')) newLx = newRx - 50;
+                            else newRx = newLx + 50;
+                        }
+                        boxW = Math.max(0.05, Math.min(1.0, (newRx - newLx) / w));
+                        posX = (newLx + newRx) / 2 / w;
+                    }
+
+                    if (this._dragMode.includes('n') || this._dragMode.includes('s')) {
+                        if (this._dragMode.includes('n')) {
+                            posY = Math.max(0.05, Math.min(0.95, (newTy + (by - ty)) / h));
+                        } else {
+                            posY = Math.max(0.05, Math.min(0.95, newBy / h));
+                        }
+                    }
+                }
+
+                target.position_x = posX;
+                target.position_y = posY;
+                if (this._dragMode !== 'center' && this._dragMode !== 'n' && this._dragMode !== 's') {
+                    this.subtitleTrack.text_box_width = boxW;
+                }
+
+                this.draw();
+                if (this.onChange) this.onChange();
             } else {
-                cvs.style.cursor = hitTest(e.clientX) ? this._handleCursor : 'default';
+                cvs.style.cursor = getCursor(hitTest(x, y));
             }
         });
 
         cvs.addEventListener('mousedown', (e) => {
-            if (this._boxSelected && hitTest(e.clientX)) {
-                this._handleDragging = true;
+            const rect = cvs.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const hit = hitTest(x, y);
+            if (hit) {
+                this._boxSelected = true;
+                this._dragMode = hit;
+                this._dragStartX = x;
+                this._dragStartY = y;
+                this._dragStartBBox = { ...this._lastBBox, mx: (this._lastBBox.lx + this._lastBBox.rx)/2 };
+                this.draw();
                 e.preventDefault();
             } else {
-                this._boxSelected = !this._boxSelected;
-                this.draw();
+                if (this._boxSelected) {
+                    this._boxSelected = false;
+                    this.draw();
+                } else if (this.onClickOutside) {
+                    this.onClickOutside();
+                }
             }
         });
 
         const stopDrag = () => {
-            if (this._handleDragging) {
-                this._handleDragging = false;
+            if (this._dragMode) {
+                this._dragMode = null;
                 if (this._onWidthChange) this._onWidthChange(this.subtitleTrack?.text_box_width);
             }
         };
@@ -290,6 +391,13 @@ class SubtitlePreview {
         }
 
         if (rotation !== 0) ctx.restore();
+
+        this._lastBBox = {
+            lx: baseX - boxW / 2,
+            rx: baseX + boxW / 2,
+            ty: baseY,
+            by: baseY + totalH
+        };
     }
 
     // ── Word-by-word renderer (marker-aware, with wrapping) ────────────────────
@@ -386,6 +494,13 @@ class SubtitlePreview {
         }
 
         ctx.globalAlpha = 1;
+
+        this._lastBBox = {
+            lx: baseX - boxW / 2,
+            rx: baseX + boxW / 2,
+            ty: baseY,
+            by: baseY + totalH
+        };
     }
 
     // ── Style resolution ───────────────────────────────────────────────────────
