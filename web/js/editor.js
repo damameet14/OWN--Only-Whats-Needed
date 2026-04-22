@@ -1262,11 +1262,22 @@ function syncApplyForAllUI() {
     const specChk = document.getElementById('specials-apply-all');
     const specGlobalWrap = document.getElementById('specials-use-global-wrap');
 
-    // Standard tab: per-segment apply_for_all
+    // Standard tab: per-segment or per-word apply_for_all
     const seg = getSelectedSegment();
     if (seg && stdChk) {
         stdChk.checked = seg.apply_for_all !== false;
         if (stdGlobalWrap) stdGlobalWrap.classList.toggle('hidden', seg.apply_for_all !== false);
+    } else if (selectedWords.length > 0 && stdChk) {
+        // Individual word(s) selected
+        const word = getSelectedWord();
+        if (word && (word.marker === 'standard' || !word.marker)) {
+            const hasOverride = !!word.style_override;
+            stdChk.checked = !hasOverride;
+            if (stdGlobalWrap) stdGlobalWrap.classList.toggle('hidden', !hasOverride);
+        } else {
+            stdChk.checked = true;
+            if (stdGlobalWrap) stdGlobalWrap.classList.add('hidden');
+        }
     } else if (stdChk) {
         stdChk.checked = true;
         if (stdGlobalWrap) stdGlobalWrap.classList.add('hidden');
@@ -1354,6 +1365,23 @@ function initApplyForAllUI() {
                 seg.apply_for_all = stdChk.checked;
                 syncApplyForAllUI();
                 autoSave();
+            } else if (selectedWords.length > 0) {
+                selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+                    const segObj = subtitleTrack.segments[segmentIndex];
+                    if (segObj && segObj.words && segObj.words[wordIndex]) {
+                        const word = segObj.words[wordIndex];
+                        if (stdChk.checked) {
+                            word.style_override = null;
+                        } else {
+                            if (!word.style_override) {
+                                const baseStyle = segObj.style || subtitleTrack.global_style || {};
+                                word.style_override = JSON.parse(JSON.stringify(baseStyle));
+                            }
+                        }
+                    }
+                });
+                syncApplyForAllUI();
+                autoSave();
             }
         });
     }
@@ -1363,19 +1391,37 @@ function initApplyForAllUI() {
     if (btnUseGlobal) {
         btnUseGlobal.addEventListener('click', () => {
             const seg = getSelectedSegment();
-            if (!seg) return;
-            if (!confirm('This will reset this segment\'s custom style to match the global style. All custom position and style changes will be lost. Continue?')) return;
-            seg.style = JSON.parse(JSON.stringify(subtitleTrack.global_style || {}));
-            seg.apply_for_all = true;
-            seg.position_x = null;
-            seg.position_y = null;
-            seg.animation_type = null;
-            seg.animation_duration = null;
-            syncApplyForAllUI();
-            applyTrackToControls(subtitleTrack);
-            preview?.setTrack(subtitleTrack);
-            autoSave();
-            showToast('Segment reset to global style');
+            if (seg) {
+                if (!confirm('This will reset this segment\'s custom style to match the global style. All custom position and style changes will be lost. Continue?')) return;
+                seg.style = JSON.parse(JSON.stringify(subtitleTrack.global_style || {}));
+                seg.apply_for_all = true;
+                seg.position_x = null;
+                seg.position_y = null;
+                seg.animation_type = null;
+                seg.animation_duration = null;
+                syncApplyForAllUI();
+                applyTrackToControls(subtitleTrack);
+                preview?.setTrack(subtitleTrack);
+                autoSave();
+                showToast('Segment reset to global style');
+            } else if (selectedWords.length > 0) {
+                if (!confirm('This will reset the selected words\' custom style to match the global/segment style. Continue?')) return;
+                selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+                    const segObj = subtitleTrack.segments[segmentIndex];
+                    if (segObj && segObj.words && segObj.words[wordIndex]) {
+                        const word = segObj.words[wordIndex];
+                        word.style_override = null;
+                        word.position_preset = null;
+                        word.animation_type = null;
+                        word.animation_duration = null;
+                    }
+                });
+                syncApplyForAllUI();
+                applyTrackToControls(subtitleTrack);
+                preview?.setTrack(subtitleTrack);
+                autoSave();
+                showToast('Words reset to global style');
+            }
         });
     }
 
@@ -2315,6 +2361,30 @@ function updateGlobalStyle(property, value) {
         // Segment has opted out of global — update only this segment's style
         if (selSeg.style) {
             selSeg.style[property] = value;
+        }
+    } else if (selectedWords.length > 0 && !selSeg) {
+        const stdChk = document.getElementById('standard-apply-all');
+        const applyAll = stdChk ? stdChk.checked : true;
+        
+        if (!applyAll) {
+            selectedWords.forEach(({ segmentIndex, wordIndex }) => {
+                const segObj = subtitleTrack.segments[segmentIndex];
+                if (segObj && segObj.words && segObj.words[wordIndex]) {
+                    const word = segObj.words[wordIndex];
+                    if (!word.style_override) {
+                        const baseStyle = segObj.style || subtitleTrack.global_style || {};
+                        word.style_override = JSON.parse(JSON.stringify(baseStyle));
+                    }
+                    word.style_override[property] = value;
+                }
+            });
+        } else {
+            if (subtitleTrack.global_style) subtitleTrack.global_style[property] = value;
+            if (subtitleTrack.segments) {
+                for (const seg of subtitleTrack.segments) {
+                    if (seg.apply_for_all !== false && seg.style) seg.style[property] = value;
+                }
+            }
         }
     } else {
         // apply_for_all is true or no selection — update global and all participating segments
