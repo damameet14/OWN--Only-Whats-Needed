@@ -120,15 +120,15 @@ class SubtitlePreview {
 
         // Draw bounding box and handles LAST so they sit on top of the text
         if (activeSeg && this._boxSelected && this._lastBBox) {
-            this._drawHandles(ctx, track, w, h, activeSeg);
+            this._drawHandles(ctx, track, w, h, activeSeg, this._overrideDrawBBox || this._lastBBox);
         }
     }
 
     // ── Draggable Handles & Bounding Box ───────────────────────────────────────
 
-    _drawHandles(ctx, track, w, h, activeSeg) {
-        if (!this._lastBBox) return;
-        const { lx, rx, ty, by } = this._lastBBox;
+    _drawHandles(ctx, track, w, h, activeSeg, bbox) {
+        if (!bbox) return;
+        const { lx, rx, ty, by } = bbox;
 
         ctx.save();
         ctx.strokeStyle = '#9b51e0'; // clean purple
@@ -229,36 +229,31 @@ class SubtitlePreview {
                 let boxW = this.subtitleTrack.text_box_width ?? 0.8;
 
                 const { lx, rx, ty, by } = this._dragStartBBox;
+                let drawBBox = { ...this._dragStartBBox };
 
                 if (this._dragMode === 'center') {
                     posX = Math.max(0.05, Math.min(0.95, (this._dragStartBBox.mx + dx) / w));
                     posY = Math.max(0.05, Math.min(0.95, (by + dy) / h));
+                    drawBBox.lx += dx;
+                    drawBBox.rx += dx;
+                    drawBBox.ty += dy;
+                    drawBBox.by += dy;
                 } else {
-                    let newLx = lx;
-                    let newRx = rx;
-                    let newTy = ty;
-                    let newBy = by;
-
-                    if (this._dragMode.includes('w')) newLx += dx;
-                    if (this._dragMode.includes('e')) newRx += dx;
-                    if (this._dragMode.includes('n')) newTy += dy;
-                    if (this._dragMode.includes('s')) newBy += dy;
-
                     if (this._dragMode.includes('w') || this._dragMode.includes('e')) {
-                        if (newRx - newLx < 50) {
-                            if (this._dragMode.includes('w')) newLx = newRx - 50;
-                            else newRx = newLx + 50;
-                        }
-                        boxW = Math.max(0.05, Math.min(1.0, (newRx - newLx) / w));
-                        posX = (newLx + newRx) / 2 / w;
+                        const mx = this._dragStartBBox.mx;
+                        let newHalfWidth = Math.abs(x - mx);
+                        if (newHalfWidth < 25) newHalfWidth = 25;
+                        boxW = Math.max(0.05, Math.min(1.0, (newHalfWidth * 2) / w));
+                        posX = target.position_x ?? this.subtitleTrack.position_x ?? 0.5;
+                        
+                        drawBBox.lx = mx - newHalfWidth;
+                        drawBBox.rx = mx + newHalfWidth;
                     }
 
                     if (this._dragMode.includes('n') || this._dragMode.includes('s')) {
-                        if (this._dragMode.includes('n')) {
-                            posY = Math.max(0.05, Math.min(0.95, (newTy + (by - ty)) / h));
-                        } else {
-                            posY = Math.max(0.05, Math.min(0.95, newBy / h));
-                        }
+                        posY = Math.max(0.05, Math.min(0.95, (by + dy) / h));
+                        drawBBox.by = by + dy;
+                        drawBBox.ty = drawBBox.by - (by - ty);
                     }
                 }
 
@@ -268,7 +263,9 @@ class SubtitlePreview {
                     this.subtitleTrack.text_box_width = boxW;
                 }
 
+                this._overrideDrawBBox = drawBBox;
                 this.draw();
+                this._overrideDrawBBox = null;
                 if (this.onChange) this.onChange();
             } else {
                 cvs.style.cursor = getCursor(hitTest(x, y));
@@ -330,6 +327,14 @@ class SubtitlePreview {
 
         // Word-wrap
         const lines = this._wrapText(ctx, fullText, boxW);
+
+        let maxLineW = 0;
+        for (let li = 0; li < lines.length; li++) {
+            const metrics = ctx.measureText(lines[li]);
+            if (metrics.width > maxLineW) maxLineW = metrics.width;
+        }
+        const pad = style.bg_color ? (style.bg_padding || 8) * scaleFactor : 4 * scaleFactor;
+        const tightW = maxLineW + pad * 2;
 
         const lineHeightMult = style.line_height ?? 1.2;
         const lineH = fontSize * lineHeightMult;
@@ -393,8 +398,8 @@ class SubtitlePreview {
         if (rotation !== 0) ctx.restore();
 
         this._lastBBox = {
-            lx: baseX - boxW / 2,
-            rx: baseX + boxW / 2,
+            lx: baseX - tightW / 2,
+            rx: baseX + tightW / 2,
             ty: baseY,
             by: baseY + totalH
         };
@@ -423,10 +428,12 @@ class SubtitlePreview {
         const lines = [];  // each line: [ wordInfo, ... ]
         let currentLine = [];
         let currentLineW = 0;
+        let maxLineW = 0;
 
         for (const info of wordInfos) {
             if (currentLine.length > 0 && currentLineW + info.width > boxW) {
                 lines.push(currentLine);
+                if (currentLineW > maxLineW) maxLineW = currentLineW;
                 currentLine = [info];
                 currentLineW = info.width;
             } else {
@@ -434,7 +441,12 @@ class SubtitlePreview {
                 currentLineW += info.width;
             }
         }
-        if (currentLine.length > 0) lines.push(currentLine);
+        if (currentLine.length > 0) {
+            lines.push(currentLine);
+            if (currentLineW > maxLineW) maxLineW = currentLineW;
+        }
+
+        const tightW = maxLineW + 8 * scaleFactor;
 
         // 3. Compute total block height using base segment style line height
         const baseLineH = (segStyle.font_size || 48) * scaleFactor * (segStyle.line_height ?? 1.2);
@@ -496,8 +508,8 @@ class SubtitlePreview {
         ctx.globalAlpha = 1;
 
         this._lastBBox = {
-            lx: baseX - boxW / 2,
-            rx: baseX + boxW / 2,
+            lx: baseX - tightW / 2,
+            rx: baseX + tightW / 2,
             ty: baseY,
             by: baseY + totalH
         };
