@@ -663,7 +663,7 @@
 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" id="transcribe-modal">
     <div class="bg-bg-surface border border-white/10 rounded-2xl p-8 w-full max-w-md modal-content relative">
         <!-- Close button -->
-        <button id="transcribe-close" class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" onclick="document.getElementById('transcribe-modal').classList.add('hidden')">
+        <button id="transcribe-close" class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" onclick="document.getElementById('transcribe-modal').classList.remove('active')">
             <span class="material-symbols-outlined">close</span>
         </button>
 
@@ -712,7 +712,7 @@
 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" id="export-modal">
     <div class="bg-bg-surface border border-white/10 rounded-2xl p-8 w-full max-w-md modal-content relative">
         <!-- Close (X) button -->
-        <button id="export-close" class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" onclick="document.getElementById('export-modal').classList.add('hidden')">
+        <button id="export-close" class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" onclick="document.getElementById('export-modal').classList.remove('active')">
             <span class="material-symbols-outlined">close</span>
         </button>
 

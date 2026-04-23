@@ -1,1 +1,0 @@
-Always read .agents\rules\context-awareness.md

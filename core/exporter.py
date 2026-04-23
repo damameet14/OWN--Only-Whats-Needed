@@ -259,7 +259,6 @@ async def export_video(
             "-c:v", fmt["vcodec"],
             "-c:a", fmt["acodec"],
             "-pix_fmt", "yuv420p",
-            "-shortest",
             output_path,
         ]
 
@@ -329,7 +328,7 @@ async def export_video(
                 encoder.wait()
             else:
                 try:
-                    encoder.wait(timeout=15)
+                    encoder.wait(timeout=120)
                 except subprocess.TimeoutExpired:
                     encoder.kill()
                     encoder.wait()
