@@ -1,7 +1,10 @@
-"""Frame-by-frame video exporter with Pillow-based subtitle rendering.
+"""Frame-by-frame video exporter with QPainter-based subtitle rendering.
 
-Replaces the PySide6 QPainter version with PIL.ImageDraw + PIL.ImageFont.
-Pipeline: FFmpeg (decode) → Pillow (render subs) → FFmpeg (encode)
+Uses PySide6 QPainter with Qt's native text shaping engine (DirectWrite on
+Windows) for correct rendering of all complex scripts: Devanagari (Hindi),
+Tamil, Gujarati, Gurmukhi (Punjabi), Telugu, Kannada, Malayalam, Bengali, etc.
+
+Pipeline: FFmpeg (decode) → QPainter (render subs) → FFmpeg (encode)
 """
 
 from __future__ import annotations
@@ -14,12 +17,34 @@ from typing import AsyncGenerator, Optional
 
 import numpy as np
 from PIL import Image, ImageFilter
-import skia
+
+from PySide6.QtGui import (
+    QGuiApplication, QImage, QPainter, QFont, QFontMetrics, QColor,
+    QPainterPath, QPen, QLinearGradient, QBrush, QFontDatabase,
+)
+from PySide6.QtCore import Qt, QPointF, QRectF
 
 from models.subtitle import SubtitleTrack, SubtitleSegment, SubtitleStyle
 from models.animations import AnimationType, compute_animation_state
 from core.video_utils import get_video_info, OUTPUT_FORMATS
 from server.config import FONTS_DIR
+
+
+# ── Qt Application singleton ─────────────────────────────────────────────────
+# QGuiApplication must exist before using QFont / QPainter.
+# We don't run its event loop — it's only needed as a singleton instance.
+# Disable Qt's DPI scaling so font pixel sizes match CSS pixels exactly.
+os.environ.setdefault("QT_FONT_DPI", "96")
+os.environ.setdefault("QT_SCALE_FACTOR", "1")
+
+def _ensure_qapp():
+    """Ensure a QGuiApplication instance exists."""
+    app = QGuiApplication.instance()
+    if app is None:
+        app = QGuiApplication(sys.argv)
+    return app
+
+_ensure_qapp()
 
 
 def _build_concat_filter(video_segments) -> Optional[str]:
@@ -46,91 +71,84 @@ def _build_concat_filter(video_segments) -> Optional[str]:
     return ";".join(filter_parts)
 
 
-# ── Font cache ────────────────────────────────────────────────────────────────
+# ── Font registration & cache ────────────────────────────────────────────────
 
-_font_cache: dict[tuple[str, int, int, str], skia.Font] = {}
+_fonts_registered = False
+_font_cache: dict[tuple[str, int, int, str], QFont] = {}
+
+# Map CSS weight (100-900) to closest QFont.Weight enum value
+_WEIGHT_MAP = {
+    100: QFont.Weight.Thin,
+    200: QFont.Weight.ExtraLight,
+    300: QFont.Weight.Light,
+    400: QFont.Weight.Normal,
+    500: QFont.Weight.Medium,
+    600: QFont.Weight.DemiBold,
+    700: QFont.Weight.Bold,
+    800: QFont.Weight.ExtraBold,
+    900: QFont.Weight.Black,
+}
 
 
-def _get_font(family: str, size: int, weight: int = 400, style: str = "normal") -> skia.Font:
-    """Load a skia.Font, correctly resolving weight/style variants.
-    
-    Priority:
-    1. Weight/style-specific file (e.g. Mukta-Bold.ttf) if it exists in FONTS_DIR.
-    2. Regular file from FONTS_DIR, displayed via Skia's font style (weight/slant).
-    3. System font via MakeFromName with the correct Skia FontStyle.
-    4. Default typeface fallback.
+def _register_fonts():
+    """Register custom TTF/OTF fonts from FONTS_DIR with Qt's font database."""
+    global _fonts_registered
+    if _fonts_registered:
+        return
+    _fonts_registered = True
+
+    if not os.path.isdir(FONTS_DIR):
+        return
+
+    for filename in os.listdir(FONTS_DIR):
+        if filename.lower().endswith(('.ttf', '.otf')):
+            font_path = os.path.join(FONTS_DIR, filename)
+            font_id = QFontDatabase.addApplicationFont(font_path)
+            if font_id >= 0:
+                families = QFontDatabase.applicationFontFamilies(font_id)
+                print(f"[Exporter] Registered font: {filename} -> {families}")
+
+
+def _css_weight_to_qt(weight: int) -> QFont.Weight:
+    """Map a CSS font-weight (100-900) to the closest QFont.Weight."""
+    closest = min(_WEIGHT_MAP.keys(), key=lambda k: abs(k - weight))
+    return _WEIGHT_MAP[closest]
+
+
+def _get_font(family: str, size: int, weight: int = 400, style: str = "normal") -> QFont:
+    """Get a QFont with the specified family, size, weight, and style.
+
+    Qt's font system provides automatic fallback for scripts not covered
+    by the primary font — if the chosen font lacks Tamil/Gujarati/etc.
+    glyphs, Qt will transparently use a system font that supports them.
     """
     key = (family, size, weight, style)
     if key in _font_cache:
         return _font_cache[key]
 
-    is_bold = weight >= 700
-    is_italic = style in ('italic', 'oblique')
+    _register_fonts()
 
-    # Map CSS weight to Skia weight constant
-    if weight <= 300:
-        sk_weight = skia.FontStyle.kLight_Weight
-    elif weight <= 400:
-        sk_weight = skia.FontStyle.kNormal_Weight
-    elif weight <= 500:
-        sk_weight = skia.FontStyle.kMedium_Weight
-    elif weight <= 600:
-        sk_weight = skia.FontStyle.kSemiBold_Weight
-    else:
-        sk_weight = skia.FontStyle.kBold_Weight
+    font = QFont(family)
+    font.setPixelSize(size)  # Pixel size, not points — matches CSS px exactly
+    font.setWeight(_css_weight_to_qt(weight))
 
-    # Map CSS style to Skia slant
-    slant = skia.FontStyle.kItalic_Slant if is_italic else skia.FontStyle.kUpright_Slant
-    font_style_obj = skia.FontStyle(sk_weight, skia.FontStyle.kNormal_Width, slant)
+    if style in ('italic', 'oblique'):
+        font.setItalic(True)
 
-    # Font file registry — base names (without suffix) keyed by family
-    font_base: dict[str, str] = {
-        "Noto Sans Devanagari": "NotoSansDevanagari",
-        "Mukta": "Mukta",
-        "Baloo 2": "Baloo2",
-    }
-
-    typeface = None
-    base = font_base.get(family)
-    if base:
-        # Build candidate filenames in priority order (most specific first)
-        candidates = []
-        if is_bold and is_italic:
-            candidates += [f"{base}-BoldItalic.ttf", f"{base}-Bold.ttf"]
-        elif is_bold:
-            candidates.append(f"{base}-Bold.ttf")
-        elif is_italic:
-            candidates.append(f"{base}-Italic.ttf")
-        candidates.append(f"{base}-Regular.ttf")   # fallback to Regular
-
-        for candidate in candidates:
-            font_path = os.path.join(FONTS_DIR, candidate)
-            if os.path.exists(font_path):
-                typeface = skia.Typeface.MakeFromFile(font_path)
-                if typeface:
-                    break
-
-    # Fallback: system font with the proper Skia FontStyle (weight + slant)
-    if not typeface:
-        typeface = skia.Typeface.MakeFromName(family, font_style_obj)
-
-    if not typeface:
-        typeface = skia.Typeface.MakeDefault()
-
-    font = skia.Font(typeface, size)
-    font.setEdging(skia.Font.Edging.kAntiAlias)
+    font.setKerning(True)
+    font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
 
     _font_cache[key] = font
     return font
 
 
-def _parse_hex_color(hex_color: str, effective_opacity: float = 1.0) -> int:
-    """Parse hex color string to skia.Color int."""
+def _parse_hex_color(hex_color: str, effective_opacity: float = 1.0) -> QColor:
+    """Parse hex color string to QColor with opacity applied."""
     if not hex_color:
-        return skia.Color(0, 0, 0, 0)
-        
+        return QColor(0, 0, 0, 0)
+
     hex_color = hex_color.lstrip("#")
-    
+
     if len(hex_color) == 6:
         r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
         a = 255
@@ -138,9 +156,9 @@ def _parse_hex_color(hex_color: str, effective_opacity: float = 1.0) -> int:
         a, r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16), int(hex_color[6:8], 16)
     else:
         r, g, b, a = 255, 255, 255, 255
-        
+
     a = int(a * effective_opacity)
-    return skia.Color(r, g, b, a)
+    return QColor(r, g, b, a)
 
 
 def _apply_text_transform(text: str, transform: str) -> str:
@@ -362,11 +380,63 @@ async def export_video(
     yield (100, "Export complete!", output_path)
 
 
+def _qimage_to_pil(qimg: QImage, w: int, h: int) -> Image.Image:
+    """Convert a QImage (ARGB32) to a PIL RGBA Image."""
+    ptr = qimg.bits()
+    arr = np.array(ptr).reshape(h, w, 4).copy()
+    # Qt ARGB32 is BGRA in memory (little-endian) — swap B↔R
+    arr[:, :, [0, 2]] = arr[:, :, [2, 0]]
+    return Image.fromarray(arr, "RGBA")
+
+
+def _draw_text_shadow(painter: QPainter, text_path: QPainterPath,
+                      style, effective_opacity: float, w: int, h: int):
+    """Draw a (possibly blurred) drop shadow for text_path onto painter."""
+    if not (style.shadow_enabled and style.shadow_color and
+            (style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur)):
+        return
+
+    shadow_color = _parse_hex_color(style.shadow_color, effective_opacity)
+    shadow_path = QPainterPath(text_path)
+    shadow_path.translate(style.shadow_offset_x, style.shadow_offset_y)
+
+    if style.shadow_blur <= 0:
+        # No blur — draw directly
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(shadow_color))
+        painter.drawPath(shadow_path)
+        painter.restore()
+        return
+
+    # Draw shadow on separate image, blur with PIL, composite back
+    shadow_img = QImage(w, h, QImage.Format.Format_ARGB32)
+    shadow_img.fill(Qt.GlobalColor.transparent)
+    sp = QPainter(shadow_img)
+    sp.setRenderHint(QPainter.RenderHint.Antialiasing)
+    sp.setPen(Qt.PenStyle.NoPen)
+    sp.setBrush(QBrush(shadow_color))
+    # Paint twice to boost intensity (blur dilutes alpha)
+    sp.drawPath(shadow_path)
+    sp.drawPath(shadow_path)
+    sp.end()
+
+    pil_shadow = _qimage_to_pil(shadow_img, w, h)
+    pil_shadow = pil_shadow.filter(ImageFilter.GaussianBlur(radius=style.shadow_blur))
+
+    # Convert blurred PIL back to QImage
+    arr_blurred = np.array(pil_shadow).copy()
+    arr_blurred[:, :, [0, 2]] = arr_blurred[:, :, [2, 0]]  # RGBA → BGRA
+    blurred_qimg = QImage(arr_blurred.data, w, h, w * 4, QImage.Format.Format_ARGB32)
+    blurred_qimg._np_ref = arr_blurred  # prevent GC
+    painter.drawImage(0, 0, blurred_qimg)
+
+
 def _render_subtitle_on_frame(
     img: Image.Image, current_time: float,
     track: SubtitleTrack, w: int, h: int,
 ):
-    """Render the active subtitle segment onto a PIL Image using Skia."""
+    """Render the active subtitle segment onto a PIL Image using QPainter."""
     seg = track.segment_at(current_time)
     if seg is None:
         return
@@ -385,20 +455,19 @@ def _render_subtitle_on_frame(
     if anim_state.opacity <= 0:
         return
 
-    # Create a Skia canvas for pristine rendering
-    surface = skia.Surface(w, h)
-    with surface as canvas:
-        canvas.clear(skia.ColorTRANSPARENT)
-        _paint_subtitle(canvas, seg, track, anim_state, w, h)
+    # Create a QImage overlay for subtitle rendering
+    overlay = QImage(w, h, QImage.Format.Format_ARGB32)
+    overlay.fill(Qt.GlobalColor.transparent)
 
-    # Composite Skia surface onto Pillow Image
-    overlay_img_np = surface.makeImageSnapshot().toarray(
-        colorType=skia.ColorType.kRGBA_8888_ColorType, 
-        alphaType=skia.AlphaType.kUnpremul_AlphaType
-    )
-    overlay_pil = Image.fromarray(overlay_img_np, "RGBA")
+    painter = QPainter(overlay)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    _paint_subtitle(painter, seg, track, anim_state, w, h)
+    painter.end()
 
-    # Composite
+    # Composite QImage onto PIL frame
+    overlay_pil = _qimage_to_pil(overlay, w, h)
+
     if img.mode != "RGBA":
         img_rgba = img.convert("RGBA")
         composited = Image.alpha_composite(img_rgba, overlay_pil)
@@ -430,22 +499,21 @@ def _get_word_style(word, seg_style: SubtitleStyle, track: SubtitleTrack) -> Sub
     return seg_style
 
 
-def _paint_subtitle(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
-    """Paint subtitle text using Skia — routes to word-by-word if any non-standard markers exist."""
+def _paint_subtitle(painter: QPainter, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
+    """Paint subtitle text — routes to word-by-word if any non-standard markers exist."""
     has_non_standard = any(
         getattr(w, 'marker', 'standard') != 'standard' or w.style_override is not None
         for w in seg.words
     )
 
     if has_non_standard:
-        _paint_subtitle_word_by_word(canvas, seg, track, anim_state, frame_w, frame_h)
+        _paint_subtitle_word_by_word(painter, seg, track, anim_state, frame_w, frame_h)
     else:
-        _paint_subtitle_uniform(canvas, seg, track, anim_state, frame_w, frame_h)
+        _paint_subtitle_uniform(painter, seg, track, anim_state, frame_w, frame_h)
 
 
-def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
-    """Render each word individually with its style, with text-box wrapping."""
-    # Resolve per-segment position (fallback to track)
+def _paint_subtitle_word_by_word(painter: QPainter, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
+    """Render each word individually with its own style, using QPainterPath for proper text shaping."""
     pos_x = getattr(seg, 'position_x', None)
     if pos_x is None:
         pos_x = track.position_x
@@ -453,20 +521,19 @@ def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack,
     if pos_y is None:
         pos_y = track.position_y
     seg_style = seg.style
-    box_w = track.text_box_width * frame_w  # max line width in pixels
-    line_height_mult = getattr(seg_style, 'line_height', 1.2)
+    box_w = track.text_box_width * frame_w
 
     # 1. Measure each word
     word_infos = []
     for i, word in enumerate(seg.words):
         style = _get_word_style(word, seg_style, track)
         font = _get_font(style.font_family, style.font_size, style.font_weight, style.font_style)
+        fm = QFontMetrics(font)
         word_text = _apply_text_transform(word.word, style.text_transform)
         display = word_text + (" " if i < len(seg.words) - 1 else "")
-        bounds = skia.Rect()
-        advance = font.measureText(display, bounds=bounds)
-        h = bounds.height() if bounds.height() > 0 else font.getSize()
-        word_infos.append((display, font, style, advance, h))
+        advance = fm.horizontalAdvance(display)
+        wh = fm.height()
+        word_infos.append((display, font, fm, style, advance, wh))
 
     if not word_infos:
         return
@@ -476,108 +543,86 @@ def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack,
     current_line: list[tuple] = []
     current_line_w = 0.0
     for info in word_infos:
-        _, _, _, w, _ = info
-        if current_line and current_line_w + w > box_w:
+        w_adv = info[4]
+        if current_line and current_line_w + w_adv > box_w:
             lines.append(current_line)
             current_line = [info]
-            current_line_w = w
+            current_line_w = w_adv
         else:
             current_line.append(info)
-            current_line_w += w
+            current_line_w += w_adv
     if current_line:
         lines.append(current_line)
 
     # 3. Compute line heights and total block height
-    line_max_h = []
-    for line in lines:
-        lh = max((h for _, _, _, _, h in line), default=0)
-        line_max_h.append(lh)
-
-    # Estimate total height using the first line's font size for line-height
-    first_style = word_infos[0][2]
-    lh_mult = getattr(first_style, 'line_height', 1.2) if first_style else 1.2
+    line_max_h = [max((info[5] for info in line), default=0) for line in lines]
+    first_style = word_infos[0][3]
+    lh_mult = getattr(first_style, 'line_height', 1.2)
     total_block_h = sum(h * lh_mult for h in line_max_h)
 
     base_x = pos_x * frame_w
     base_y = pos_y * frame_h - total_block_h + anim_state.offset_y
 
-    canvas.save()
-
+    painter.save()
     cursor_y = base_y
-    for line_idx, (line, max_h) in enumerate(zip(lines, line_max_h)):
-        line_w = sum(w for _, _, _, w, _ in line)
+    for line, max_h in zip(lines, line_max_h):
+        line_w = sum(info[4] for info in line)
         cursor_x = base_x - line_w / 2 + anim_state.offset_x
 
-        for display, font, style, w_w, w_h in line:
+        for display, font, fm, style, w_adv, w_h in line:
             effective_opacity = anim_state.opacity * getattr(style, 'text_opacity', 1.0)
-            metrics = font.getMetrics()
-            local_y = cursor_y - metrics.fAscent
+            baseline_y = cursor_y + fm.ascent()
 
-            paint = skia.Paint(AntiAlias=True)
+            # Build text path (proper shaping for all scripts)
+            text_path = QPainterPath()
+            text_path.addText(QPointF(cursor_x, baseline_y), font, display)
+
+            # Background box
+            if style.bg_color:
+                bg_pad = getattr(style, 'bg_padding', 0)
+                painter.fillRect(
+                    QRectF(cursor_x - bg_pad, cursor_y - bg_pad,
+                           w_adv + bg_pad * 2, max_h + bg_pad * 2),
+                    _parse_hex_color(style.bg_color, effective_opacity))
 
             # Shadow
-            if style.shadow_enabled and style.shadow_color and (
-                style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur
-            ):
-                sc = _parse_hex_color(style.shadow_color, effective_opacity)
-                paint.setImageFilter(skia.ImageFilters.DropShadow(
-                    style.shadow_offset_x, style.shadow_offset_y,
-                    style.shadow_blur, style.shadow_blur, sc
-                ))
+            _draw_text_shadow(painter, text_path, style, effective_opacity, frame_w, frame_h)
+
+            # Stroke (drawn before fill so fill covers it)
+            if style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
+                stroke_pen = QPen(_parse_hex_color(style.outline_color, effective_opacity))
+                stroke_pen.setWidthF(style.outline_width * 2)
+                stroke_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                painter.setPen(stroke_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(text_path)
 
             # Fill
+            painter.setPen(Qt.PenStyle.NoPen)
             if style.fill_type == "gradient":
                 c1 = _parse_hex_color(style.gradient_color1, effective_opacity)
                 c2 = _parse_hex_color(style.gradient_color2, effective_opacity)
                 rad = np.radians(getattr(style, 'gradient_angle', 0))
-                cxx = cursor_x + w_w / 2
-                cyy = cursor_y + w_h / 2
-                dx = np.cos(rad) * w_w / 2
-                dy = np.sin(rad) * w_h / 2
-                paint.setShader(skia.GradientShader.MakeLinear(
-                    points=[(cxx - dx, cyy - dy), (cxx + dx, cyy + dy)],
-                    colors=[c1, c2]
-                ))
+                cxx, cyy = cursor_x + w_adv / 2, cursor_y + w_h / 2
+                dx, dy = np.cos(rad) * w_adv / 2, np.sin(rad) * w_h / 2
+                gradient = QLinearGradient(QPointF(cxx - dx, cyy - dy), QPointF(cxx + dx, cyy + dy))
+                gradient.setColorAt(0.0, c1)
+                gradient.setColorAt(1.0, c2)
+                painter.setBrush(QBrush(gradient))
             else:
-                paint.setColor(_parse_hex_color(style.text_color, effective_opacity))
+                painter.setBrush(QBrush(_parse_hex_color(style.text_color, effective_opacity)))
 
-            # Background
-            if style.bg_color:
-                bg_pad = getattr(style, 'bg_padding', 0)
-                bg_paint = skia.Paint(Color=_parse_hex_color(style.bg_color, effective_opacity), AntiAlias=True)
-                bg_rect = skia.Rect.MakeXYWH(cursor_x - bg_pad, cursor_y - bg_pad, w_w + bg_pad * 2, max_h + bg_pad * 2)
-                canvas.drawRect(bg_rect, bg_paint)
+            painter.drawPath(text_path)
+            cursor_x += w_adv
 
-            # Stroke
-            if style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
-                stroke_paint = skia.Paint(
-                    AntiAlias=True,
-                    Style=skia.Paint.kStroke_Style,
-                    StrokeWidth=style.outline_width * 2,
-                    StrokeJoin=skia.Paint.kRound_Join,
-                    Color=_parse_hex_color(style.outline_color, effective_opacity)
-                )
-                if style.shadow_enabled and style.shadow_color:
-                    stroke_paint.setImageFilter(skia.ImageFilters.DropShadow(
-                        style.shadow_offset_x, style.shadow_offset_y,
-                        style.shadow_blur, style.shadow_blur,
-                        _parse_hex_color(style.shadow_color, effective_opacity)
-                    ))
-                    paint.setImageFilter(None)
-                canvas.drawString(display, cursor_x, local_y, font, stroke_paint)
+        cursor_y += max_h * lh_mult
 
-            canvas.drawString(display, cursor_x, local_y, font, paint)
-            cursor_x += w_w
-
-        cursor_y += max_h * getattr(first_style, 'line_height', 1.2)
-
-    canvas.restore()
+    painter.restore()
 
 
-def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
-    """Paint subtitle text as a uniform block with text-box wrapping."""
+def _paint_subtitle_uniform(painter: QPainter, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
+    """Paint subtitle text as a uniform block using QPainterPath for proper text shaping."""
     style = seg.style
-    # Resolve per-segment position (fallback to track)
     pos_x = getattr(seg, 'position_x', None)
     if pos_x is None:
         pos_x = track.position_x
@@ -587,6 +632,7 @@ def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim
     box_w = track.text_box_width * frame_w
 
     font = _get_font(style.font_family, style.font_size, style.font_weight, style.font_style)
+    fm = QFontMetrics(font)
 
     anim_type_str = getattr(seg, 'animation_type', None) or track.animation_type
     anim_type = AnimationType(anim_type_str)
@@ -605,9 +651,7 @@ def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim
     current_line = ""
     for w in words:
         test = (current_line + " " + w).strip()
-        bounds = skia.Rect()
-        font.measureText(test, bounds=bounds)
-        if current_line and bounds.width() > box_w:
+        if current_line and fm.horizontalAdvance(test) > box_w:
             lines.append(current_line)
             current_line = w
         else:
@@ -616,88 +660,70 @@ def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim
         lines.append(current_line)
 
     effective_opacity = anim_state.opacity * getattr(style, 'text_opacity', 1.0)
-    metrics = font.getMetrics()
-    line_h = (metrics.fDescent - metrics.fAscent) * getattr(style, 'line_height', 1.2)
+    line_h = fm.height() * getattr(style, 'line_height', 1.2)
     total_block_h = line_h * len(lines)
 
     base_x = pos_x * frame_w
     base_y = pos_y * frame_h - total_block_h + anim_state.offset_y
 
-    canvas.save()
+    painter.save()
     rotation = getattr(style, 'rotation', 0)
     if rotation != 0:
         cx = base_x
         cy = base_y + total_block_h / 2
-        canvas.translate(cx, cy)
-        canvas.rotate(rotation)
-        canvas.translate(-cx, -cy)
-
-    paint = skia.Paint(AntiAlias=True)
-
-    if style.shadow_enabled and style.shadow_color and (
-        style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur
-    ):
-        sc = _parse_hex_color(style.shadow_color, effective_opacity)
-        paint.setImageFilter(skia.ImageFilters.DropShadow(
-            style.shadow_offset_x, style.shadow_offset_y,
-            style.shadow_blur, style.shadow_blur, sc
-        ))
-
-    stroke_paint = None
-    if style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
-        stroke_paint = skia.Paint(
-            AntiAlias=True,
-            Style=skia.Paint.kStroke_Style,
-            StrokeWidth=style.outline_width * 2,
-            StrokeJoin=skia.Paint.kRound_Join,
-            Color=_parse_hex_color(style.outline_color, effective_opacity)
-        )
-        if style.shadow_enabled and style.shadow_color:
-            stroke_paint.setImageFilter(skia.ImageFilters.DropShadow(
-                style.shadow_offset_x, style.shadow_offset_y,
-                style.shadow_blur, style.shadow_blur,
-                _parse_hex_color(style.shadow_color, effective_opacity)
-            ))
-            paint.setImageFilter(None)
+        painter.translate(cx, cy)
+        painter.rotate(rotation)
+        painter.translate(-cx, -cy)
 
     for line_idx, line_text in enumerate(lines):
         if not line_text.strip():
             continue
 
-        bounds = skia.Rect()
-        advance = font.measureText(line_text, bounds=bounds)
+        advance = fm.horizontalAdvance(line_text)
         line_top = base_y + line_idx * line_h
-        local_y = line_top - metrics.fAscent
+        baseline_y = line_top + fm.ascent()
         start_x = base_x - advance / 2 + anim_state.offset_x
 
-        # Gradient (per-line)
+        # Build text path (proper shaping for all Indian scripts)
+        text_path = QPainterPath()
+        text_path.addText(QPointF(start_x, baseline_y), font, line_text)
+
+        # Background box
+        if style.bg_color:
+            bg_pad = getattr(style, 'bg_padding', 0)
+            painter.fillRect(
+                QRectF(start_x - bg_pad, line_top - bg_pad,
+                       advance + bg_pad * 2, line_h + bg_pad * 2),
+                _parse_hex_color(style.bg_color, effective_opacity))
+
+        # Shadow
+        _draw_text_shadow(painter, text_path, style, effective_opacity, frame_w, frame_h)
+
+        # Stroke (drawn before fill)
+        if style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
+            stroke_pen = QPen(_parse_hex_color(style.outline_color, effective_opacity))
+            stroke_pen.setWidthF(style.outline_width * 2)
+            stroke_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(stroke_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(text_path)
+
+        # Fill
+        painter.setPen(Qt.PenStyle.NoPen)
         if style.fill_type == "gradient":
             c1 = _parse_hex_color(style.gradient_color1, effective_opacity)
             c2 = _parse_hex_color(style.gradient_color2, effective_opacity)
             rad = np.radians(getattr(style, 'gradient_angle', 0))
             cxx = start_x + advance / 2
             cyy = line_top + line_h / 2
-            dx = np.cos(rad) * advance / 2
-            dy = np.sin(rad) * line_h / 2
-            paint.setShader(skia.GradientShader.MakeLinear(
-                points=[(cxx - dx, cyy - dy), (cxx + dx, cyy + dy)],
-                colors=[c1, c2]
-            ))
+            dx, dy = np.cos(rad) * advance / 2, np.sin(rad) * line_h / 2
+            gradient = QLinearGradient(QPointF(cxx - dx, cyy - dy), QPointF(cxx + dx, cyy + dy))
+            gradient.setColorAt(0.0, c1)
+            gradient.setColorAt(1.0, c2)
+            painter.setBrush(QBrush(gradient))
         else:
-            paint.setColor(_parse_hex_color(style.text_color, effective_opacity))
+            painter.setBrush(QBrush(_parse_hex_color(style.text_color, effective_opacity)))
 
-        # Background box
-        if style.bg_color:
-            bg_pad = getattr(style, 'bg_padding', 0)
-            bg_paint = skia.Paint(Color=_parse_hex_color(style.bg_color, effective_opacity), AntiAlias=True)
-            bg_rect = skia.Rect.MakeXYWH(
-                start_x - bg_pad, line_top - bg_pad,
-                advance + bg_pad * 2, line_h + bg_pad * 2
-            )
-            canvas.drawRect(bg_rect, bg_paint)
+        painter.drawPath(text_path)
 
-        if stroke_paint:
-            canvas.drawString(line_text, start_x, local_y, font, stroke_paint)
-        canvas.drawString(line_text, start_x, local_y, font, paint)
-
-    canvas.restore()
+    painter.restore()
