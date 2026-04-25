@@ -25,7 +25,7 @@ from PySide6.QtGui import (
 from PySide6.QtCore import Qt, QPointF, QRectF
 
 from models.subtitle import SubtitleTrack, SubtitleSegment, SubtitleStyle
-from models.animations import AnimationType, compute_animation_state
+from models.animations import AnimationType, compute_animation_state, compute_word_animation_state, WordAnimationState
 from core.video_utils import get_video_info, OUTPUT_FORMATS
 from server.config import FONTS_DIR
 
@@ -441,19 +441,27 @@ def _render_subtitle_on_frame(
     if seg is None:
         return
 
-    anim_type_str = getattr(seg, 'animation_type', None) or track.animation_type
-    anim_dur = getattr(seg, 'animation_duration', None)
-    if anim_dur is None:
-        anim_dur = track.animation_duration
-    anim_type = AnimationType(anim_type_str)
+    # Resolve per-line animation (segment override → track default)
+    line_anim_str = getattr(seg, 'line_animation_type', None) or track.line_animation_type
+    line_anim_dur = getattr(seg, 'line_animation_duration', None)
+    if line_anim_dur is None:
+        line_anim_dur = track.line_animation_duration
+    line_anim_type = AnimationType(line_anim_str)
     anim_state = compute_animation_state(
-        anim_type, seg, current_time,
-        anim_duration=anim_dur,
+        line_anim_type, seg, current_time,
+        anim_duration=line_anim_dur,
         frame_height=float(h),
     )
 
     if anim_state.opacity <= 0:
         return
+
+    # Resolve per-word animation type (segment override → track default)
+    word_anim_str = getattr(seg, 'word_animation_type', None) or track.word_animation_type
+    word_anim_dur = getattr(seg, 'word_animation_duration', None)
+    if word_anim_dur is None:
+        word_anim_dur = track.word_animation_duration
+    word_anim_type = AnimationType(word_anim_str)
 
     # Create a QImage overlay for subtitle rendering
     overlay = QImage(w, h, QImage.Format.Format_ARGB32)
@@ -462,7 +470,7 @@ def _render_subtitle_on_frame(
     painter = QPainter(overlay)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    _paint_subtitle(painter, seg, track, anim_state, w, h)
+    _paint_subtitle(painter, seg, track, anim_state, word_anim_type, word_anim_dur, current_time, w, h)
     painter.end()
 
     # Composite QImage onto PIL frame
@@ -499,21 +507,30 @@ def _get_word_style(word, seg_style: SubtitleStyle, track: SubtitleTrack) -> Sub
     return seg_style
 
 
-def _paint_subtitle(painter: QPainter, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
-    """Paint subtitle text — routes to word-by-word if any non-standard markers exist."""
+def _paint_subtitle(painter: QPainter, seg, track: SubtitleTrack, anim_state,
+                    word_anim_type: AnimationType, word_anim_dur: float,
+                    current_time: float, frame_w, frame_h):
+    """Paint subtitle text — routes to word-by-word if non-standard markers or word animation."""
     has_non_standard = any(
         getattr(w, 'marker', 'standard') != 'standard' or w.style_override is not None
         for w in seg.words
     )
 
-    if has_non_standard:
-        _paint_subtitle_word_by_word(painter, seg, track, anim_state, frame_w, frame_h)
+    # Word animation requires word-by-word rendering
+    needs_word_by_word = has_non_standard or word_anim_type != AnimationType.NONE
+
+    if needs_word_by_word:
+        _paint_subtitle_word_by_word(painter, seg, track, anim_state,
+                                     word_anim_type, word_anim_dur, current_time,
+                                     frame_w, frame_h)
     else:
         _paint_subtitle_uniform(painter, seg, track, anim_state, frame_w, frame_h)
 
 
-def _paint_subtitle_word_by_word(painter: QPainter, seg, track: SubtitleTrack, anim_state, frame_w, frame_h):
-    """Render each word individually with its own style, using QPainterPath for proper text shaping."""
+def _paint_subtitle_word_by_word(painter: QPainter, seg, track: SubtitleTrack, anim_state,
+                                  word_anim_type: AnimationType, word_anim_dur: float,
+                                  current_time: float, frame_w, frame_h):
+    """Render each word individually with its own style and per-word animation."""
     pos_x = getattr(seg, 'position_x', None)
     if pos_x is None:
         pos_x = track.position_x
@@ -523,7 +540,7 @@ def _paint_subtitle_word_by_word(painter: QPainter, seg, track: SubtitleTrack, a
     seg_style = seg.style
     box_w = track.text_box_width * frame_w
 
-    # 1. Measure each word
+    # 1. Measure each word and compute per-word animation
     word_infos = []
     for i, word in enumerate(seg.words):
         style = _get_word_style(word, seg_style, track)
@@ -533,7 +550,25 @@ def _paint_subtitle_word_by_word(painter: QPainter, seg, track: SubtitleTrack, a
         display = word_text + (" " if i < len(seg.words) - 1 else "")
         advance = fm.horizontalAdvance(display)
         wh = fm.height()
-        word_infos.append((display, font, fm, style, advance, wh))
+
+        # Compute per-word animation state
+        # Per-word override takes precedence over segment/track word animation
+        w_anim_type = word_anim_type
+        w_anim_dur = word_anim_dur
+        word_override_type = getattr(word, 'word_animation_type', None)
+        if word_override_type:
+            w_anim_type = AnimationType(word_override_type)
+        word_override_dur = getattr(word, 'word_animation_duration', None)
+        if word_override_dur is not None:
+            w_anim_dur = word_override_dur
+
+        w_anim_state = compute_word_animation_state(
+            w_anim_type, word, current_time,
+            anim_duration=w_anim_dur,
+            frame_height=float(frame_h),
+        )
+
+        word_infos.append((display, font, fm, style, advance, wh, word, w_anim_state))
 
     if not word_infos:
         return
@@ -569,19 +604,35 @@ def _paint_subtitle_word_by_word(painter: QPainter, seg, track: SubtitleTrack, a
         line_w = sum(info[4] for info in line)
         cursor_x = base_x - line_w / 2 + anim_state.offset_x
 
-        for display, font, fm, style, w_adv, w_h in line:
-            effective_opacity = anim_state.opacity * getattr(style, 'text_opacity', 1.0)
-            baseline_y = cursor_y + fm.ascent()
+        for display, font, fm, style, w_adv, w_h, word, w_anim in line:
+            # Compose line animation with word animation
+            word_opacity = w_anim.opacity
+            word_offset_x = w_anim.offset_x
+            word_offset_y = w_anim.offset_y
+
+            # Skip invisible words (typewriter: word not yet revealed)
+            if not w_anim.visible:
+                cursor_x += w_adv
+                continue
+
+            effective_opacity = anim_state.opacity * word_opacity * getattr(style, 'text_opacity', 1.0)
+            if effective_opacity <= 0:
+                cursor_x += w_adv
+                continue
+
+            draw_x = cursor_x + word_offset_x
+            draw_y = cursor_y + word_offset_y
+            baseline_y = draw_y + fm.ascent()
 
             # Build text path (proper shaping for all scripts)
             text_path = QPainterPath()
-            text_path.addText(QPointF(cursor_x, baseline_y), font, display)
+            text_path.addText(QPointF(draw_x, baseline_y), font, display)
 
             # Background box
             if style.bg_color:
                 bg_pad = getattr(style, 'bg_padding', 0)
                 painter.fillRect(
-                    QRectF(cursor_x - bg_pad, cursor_y - bg_pad,
+                    QRectF(draw_x - bg_pad, draw_y - bg_pad,
                            w_adv + bg_pad * 2, max_h + bg_pad * 2),
                     _parse_hex_color(style.bg_color, effective_opacity))
 
@@ -597,13 +648,16 @@ def _paint_subtitle_word_by_word(painter: QPainter, seg, track: SubtitleTrack, a
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawPath(text_path)
 
-            # Fill
+            # Fill — karaoke highlight changes the fill color
             painter.setPen(Qt.PenStyle.NoPen)
-            if style.fill_type == "gradient":
+            if w_anim.is_highlighted:
+                # Karaoke: highlighted word gets a distinct color
+                painter.setBrush(QBrush(_parse_hex_color('#FFD700', effective_opacity)))
+            elif style.fill_type == "gradient":
                 c1 = _parse_hex_color(style.gradient_color1, effective_opacity)
                 c2 = _parse_hex_color(style.gradient_color2, effective_opacity)
                 rad = np.radians(getattr(style, 'gradient_angle', 0))
-                cxx, cyy = cursor_x + w_adv / 2, cursor_y + w_h / 2
+                cxx, cyy = draw_x + w_adv / 2, draw_y + w_h / 2
                 dx, dy = np.cos(rad) * w_adv / 2, np.sin(rad) * w_h / 2
                 gradient = QLinearGradient(QPointF(cxx - dx, cyy - dy), QPointF(cxx + dx, cyy + dy))
                 gradient.setColorAt(0.0, c1)
@@ -634,7 +688,7 @@ def _paint_subtitle_uniform(painter: QPainter, seg, track: SubtitleTrack, anim_s
     font = _get_font(style.font_family, style.font_size, style.font_weight, style.font_style)
     fm = QFontMetrics(font)
 
-    anim_type_str = getattr(seg, 'animation_type', None) or track.animation_type
+    anim_type_str = getattr(seg, 'line_animation_type', None) or track.line_animation_type
     anim_type = AnimationType(anim_type_str)
     if anim_type == AnimationType.TYPEWRITER and anim_state.visible_char_count >= 0:
         full_text = seg.text[:anim_state.visible_char_count]

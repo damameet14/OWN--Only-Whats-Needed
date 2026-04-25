@@ -94,24 +94,29 @@ class SubtitlePreview {
         const posX = activeSeg.position_x ?? track.position_x ?? 0.5;
         const posY = activeSeg.position_y ?? track.position_y ?? 0.9;
 
-        // Resolve per-segment animation (fallback to track)
+        // Resolve per-line animation (segment override → track)
         const segStart = activeSeg.words[0]?.start_time ?? 0;
         const segEnd = activeSeg.words[activeSeg.words.length - 1]?.end_time ?? 0;
-        const animType = activeSeg.animation_type ?? track.animation_type ?? 'none';
-        const animDur = activeSeg.animation_duration ?? track.animation_duration ?? 0.3;
-        const animState = computeAnimState(animType, currentTime, segStart, segEnd, animDur, h);
+        const lineAnimType = activeSeg.line_animation_type ?? activeSeg.animation_type ?? track.line_animation_type ?? track.animation_type ?? 'none';
+        const lineAnimDur = activeSeg.line_animation_duration ?? activeSeg.animation_duration ?? track.line_animation_duration ?? track.animation_duration ?? 0.3;
+        const animState = computeAnimState(lineAnimType, currentTime, segStart, segEnd, lineAnimDur, h);
 
         if (animState.opacity <= 0) return;
 
+        // Resolve per-word animation (segment override → track)
+        const wordAnimType = activeSeg.word_animation_type ?? track.word_animation_type ?? 'none';
+        const wordAnimDur = activeSeg.word_animation_duration ?? track.word_animation_duration ?? 0.3;
+
         const scaleFactor = w / (this.video.videoWidth || 1920);
 
-        // Route to word-by-word if any word has a non-standard marker
+        // Route to word-by-word if any word has a non-standard marker OR word animation is active
         const hasNonStandard = activeSeg.words.some(word =>
             (word.marker && word.marker !== 'standard') || word.style_override
         );
+        const needsWordByWord = hasNonStandard || wordAnimType !== 'none';
 
-        if (hasNonStandard) {
-            this.drawSegmentWordByWord(ctx, activeSeg, track, posX, posY, animState, scaleFactor, w, h);
+        if (needsWordByWord) {
+            this.drawSegmentWordByWord(ctx, activeSeg, track, posX, posY, animState, wordAnimType, wordAnimDur, currentTime, scaleFactor, w, h);
         } else {
             this.drawSegmentUniform(ctx, activeSeg, track, posX, posY, animState, scaleFactor, w, h);
         }
@@ -405,15 +410,15 @@ class SubtitlePreview {
         };
     }
 
-    // ── Word-by-word renderer (marker-aware, with wrapping) ────────────────────
+    // ── Word-by-word renderer (marker-aware, with wrapping + per-word animation) ──
 
-    drawSegmentWordByWord(ctx, seg, track, posX, posY, animState, scaleFactor, w, h) {
+    drawSegmentWordByWord(ctx, seg, track, posX, posY, animState, wordAnimType, wordAnimDur, currentTime, scaleFactor, w, h) {
         const segStyle = seg.style || track.global_style || {};
         const boxW = (track.text_box_width ?? 0.8) * w;
 
         ctx.textBaseline = 'top';
 
-        // 1. Measure every word with its resolved style
+        // 1. Measure every word with its resolved style + compute per-word animation
         const wordInfos = seg.words.map((word, idx) => {
             const style = this.getWordStyle(word, segStyle, track);
             const fontSize = Math.round((style.font_size || 48) * scaleFactor);
@@ -421,11 +426,17 @@ class SubtitlePreview {
             ctx.font = fontStr;
             const text = this.applyTextTransform(word.word, style.text_transform) + (idx < seg.words.length - 1 ? ' ' : '');
             const measured = ctx.measureText(text);
-            return { text, style, fontSize, fontStr, width: measured.width };
+
+            // Per-word animation: word override > segment/track
+            const wAnimType = word.word_animation_type ?? word.animation_type ?? wordAnimType;
+            const wAnimDur = word.word_animation_duration ?? word.animation_duration ?? wordAnimDur;
+            const wAnimState = computeWordAnimState(wAnimType, currentTime, word.start_time, word.end_time, wAnimDur, h);
+
+            return { text, style, fontSize, fontStr, width: measured.width, word, wAnimState };
         });
 
         // 2. Group into lines
-        const lines = [];  // each line: [ wordInfo, ... ]
+        const lines = [];
         let currentLine = [];
         let currentLineW = 0;
         let maxLineW = 0;
@@ -463,17 +474,35 @@ class SubtitlePreview {
             const ly = baseY + li * baseLineH;
 
             for (const info of line) {
-                const { text, style, fontSize, fontStr, width: ww } = info;
+                const { text, style, fontSize, fontStr, width: ww, wAnimState } = info;
                 const lineH = fontSize * (style.line_height ?? 1.2);
 
+                // Skip invisible words (e.g., typewriter: not yet revealed)
+                if (!wAnimState.visible) {
+                    curX += ww;
+                    continue;
+                }
+
+                const wordOpacity = wAnimState.opacity;
+                const wordOffsetX = wAnimState.offsetX;
+                const wordOffsetY = wAnimState.offsetY;
+
+                const drawX = curX + wordOffsetX;
+                const drawY = ly + wordOffsetY;
+
                 ctx.font = fontStr;
-                ctx.globalAlpha = animState.opacity * (style.text_opacity ?? 1);
+                ctx.globalAlpha = animState.opacity * wordOpacity * (style.text_opacity ?? 1);
+
+                if (ctx.globalAlpha <= 0) {
+                    curX += ww;
+                    continue;
+                }
 
                 // Background
                 if (style.bg_color) {
                     ctx.fillStyle = style.bg_color;
                     const pad = (style.bg_padding || 8) * scaleFactor;
-                    ctx.fillRect(curX - pad, ly - pad, ww + 2 * pad, lineH + 2 * pad);
+                    ctx.fillRect(drawX - pad, drawY - pad, ww + 2 * pad, lineH + 2 * pad);
                 }
 
                 // Shadow
@@ -485,7 +514,7 @@ class SubtitlePreview {
                     ctx.shadowOffsetX = (style.shadow_offset_x || 0) * scaleFactor;
                     ctx.shadowOffsetY = (style.shadow_offset_y || 0) * scaleFactor;
                     ctx.fillStyle = style.text_color || '#FFFFFF';
-                    ctx.fillText(text, curX, ly);
+                    ctx.fillText(text, drawX, drawY);
                     ctx.restore();
                 }
 
@@ -494,12 +523,16 @@ class SubtitlePreview {
                     ctx.strokeStyle = style.outline_color;
                     ctx.lineWidth = style.outline_width * scaleFactor * 2;
                     ctx.lineJoin = 'round';
-                    ctx.strokeText(text, curX, ly);
+                    ctx.strokeText(text, drawX, drawY);
                 }
 
-                // Fill
-                ctx.fillStyle = this.buildFillStyle(ctx, style, curX, ly, ww, lineH, scaleFactor);
-                ctx.fillText(text, curX, ly);
+                // Fill — karaoke highlight changes fill color
+                if (wAnimState.isHighlighted) {
+                    ctx.fillStyle = '#FFD700';  // Karaoke highlight color
+                } else {
+                    ctx.fillStyle = this.buildFillStyle(ctx, style, drawX, drawY, ww, lineH, scaleFactor);
+                }
+                ctx.fillText(text, drawX, drawY);
 
                 curX += ww;
             }
@@ -601,7 +634,7 @@ class SubtitlePreview {
 }
 
 
-// ── Animation State ──────────────────────────────────────────────────────────
+// ── Line Animation State ────────────────────────────────────────────────────
 
 function computeAnimState(type, current, segStart, segEnd, animDur, frameH) {
     const state = { opacity: 1, offsetX: 0, offsetY: 0, scale: 1, visibleChars: -1, highlightIdx: -1 };
@@ -639,6 +672,7 @@ function computeAnimState(type, current, segStart, segEnd, animDur, frameH) {
         }
 
         case 'typewriter':
+            // Legacy line-level typewriter (kept for backwards compat)
             state.visibleChars = Math.round(Math.min(progress / 0.8, 1.0) * 1000);
             break;
 
@@ -646,6 +680,71 @@ function computeAnimState(type, current, segStart, segEnd, animDur, frameH) {
             if (timeIn < animDur) { const t = ease(timeIn / animDur); state.scale = 0.5 + 0.5 * t; state.opacity = t; }
             else if (timeOut < animDur) { const t = ease(timeOut / animDur); state.scale = 0.5 + 0.5 * t; state.opacity = t; }
             break;
+    }
+
+    return state;
+}
+
+
+// ── Per-Word Animation State ────────────────────────────────────────────────
+
+function computeWordAnimState(type, current, wordStart, wordEnd, animDur, frameH) {
+    const state = { opacity: 1, offsetX: 0, offsetY: 0, scale: 1, visible: true, isHighlighted: false };
+
+    if (type === 'none') return state;
+
+    const ease = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+    const timeSinceStart = current - wordStart;
+
+    if (type === 'typewriter') {
+        // Word invisible until its start_time
+        if (current < wordStart) {
+            state.visible = false;
+            state.opacity = 0;
+        } else {
+            state.visible = true;
+            state.opacity = 1;
+        }
+        return state;
+    }
+
+    if (type === 'karaoke') {
+        // All words visible; current word is highlighted
+        state.visible = true;
+        state.isHighlighted = (wordStart <= current && current <= wordEnd);
+        state.opacity = 1;
+        return state;
+    }
+
+    // For all other types: word animates in at its start_time
+    if (current < wordStart) {
+        state.opacity = 0;
+        state.visible = false;
+        if (type === 'slide_up') state.offsetY = frameH * 0.03;
+        else if (type === 'slide_down') state.offsetY = -frameH * 0.03;
+        else if (type === 'pop') state.scale = 0.5;
+        return state;
+    }
+
+    state.visible = true;
+
+    if (timeSinceStart < animDur) {
+        const t = ease(timeSinceStart / animDur);
+
+        if (type === 'fade') {
+            state.opacity = t;
+        } else if (type === 'slide_up') {
+            const d = frameH * 0.03;
+            state.offsetY = d * (1 - t);
+            state.opacity = t;
+        } else if (type === 'slide_down') {
+            const d = frameH * 0.03;
+            state.offsetY = -d * (1 - t);
+            state.opacity = t;
+        } else if (type === 'pop') {
+            state.scale = 0.5 + 0.5 * t;
+            state.opacity = t;
+        }
     }
 
     return state;

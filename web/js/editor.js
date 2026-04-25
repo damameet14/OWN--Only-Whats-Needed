@@ -759,9 +759,12 @@ function applyTrackToControls(track) {
     if (wplWrap) wplWrap.classList.toggle('opacity-40', !!track.sentence_mode);
 
     // Animation
-    setVal('global-animation', track.animation_type || 'none');
-    setVal('global-anim-duration', track.animation_duration || 0.3);
-    setText('global-anim-dur-val', `${track.animation_duration || 0.3}s`);
+    setVal('global-line-animation', track.line_animation_type || track.animation_type || 'none');
+    setVal('global-line-anim-duration', track.line_animation_duration || track.animation_duration || 0.3);
+    setText('global-line-anim-dur-val', `${track.line_animation_duration || track.animation_duration || 0.3}s`);
+    setVal('global-word-animation', track.word_animation_type || 'none');
+    setVal('global-word-anim-duration', track.word_animation_duration || 0.3);
+    setText('global-word-anim-dur-val', `${track.word_animation_duration || 0.3}s`);
 }
 
 // Toggle fill controls visibility
@@ -825,15 +828,14 @@ function initTabSwitching() {
         });
     });
 
-    // Right panel tabs (text-style / templates / animation)
-    const rightTabs = document.querySelectorAll('[data-tab="text-style"], [data-tab="templates"], [data-tab="animation"]');
+    // Right panel tabs (text-style / animation) — legacy, may not exist
+    const rightTabs = document.querySelectorAll('[data-tab="text-style"], [data-tab="animation"]');
     rightTabs.forEach(btn => {
         btn.addEventListener('click', () => {
             rightTabs.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            document.getElementById('text-style-panel').classList.toggle('hidden', btn.dataset.tab !== 'text-style');
-            document.getElementById('templates-panel').classList.toggle('hidden', btn.dataset.tab !== 'templates');
-            document.getElementById('animation-panel').classList.toggle('hidden', btn.dataset.tab !== 'animation');
+            document.getElementById('text-style-panel')?.classList.toggle('hidden', btn.dataset.tab !== 'text-style');
+            document.getElementById('animation-panel')?.classList.toggle('hidden', btn.dataset.tab !== 'animation');
         });
     });
 }
@@ -843,7 +845,6 @@ function initTabSwitching() {
 
 async function loadPresets() {
     const templatePanels = [
-        document.getElementById('all-templates-panel'),
         document.getElementById('presets-templates-panel')
     ].filter(Boolean);
 
@@ -1367,8 +1368,10 @@ function initApplyForAllUI() {
                 seg.apply_for_all = true;
                 seg.position_x = null;
                 seg.position_y = null;
-                seg.animation_type = null;
-                seg.animation_duration = null;
+                seg.line_animation_type = null;
+                seg.line_animation_duration = null;
+                seg.word_animation_type = null;
+                seg.word_animation_duration = null;
                 syncApplyForAllUI();
                 applyTrackToControls(subtitleTrack);
                 preview?.setTrack(subtitleTrack);
@@ -1382,8 +1385,8 @@ function initApplyForAllUI() {
                         const word = segObj.words[wordIndex];
                         word.style_override = null;
                         word.position_preset = null;
-                        word.animation_type = null;
-                        word.animation_duration = null;
+                        word.word_animation_type = null;
+                        word.word_animation_duration = null;
                     }
                 });
                 syncApplyForAllUI();
@@ -1427,8 +1430,8 @@ function initApplyForAllUI() {
             if (!confirm(`This will reset this word\'s custom style to match the ${markerName} global style. Continue?`)) return;
             word.style_override = null;
             word.position_preset = null;
-            word.animation_type = null;
-            word.animation_duration = null;
+            word.word_animation_type = null;
+            word.word_animation_duration = null;
             syncApplyForAllUI();
             loadMarkerStyleToControls(currentMarkerTab);
             preview?.setTrack(subtitleTrack);
@@ -1524,8 +1527,19 @@ function initSubTabSwitching() {
 
             const tab = btn.dataset.allTab;
             document.getElementById('all-text-panel')?.classList.toggle('hidden', tab !== 'text');
-            document.getElementById('all-templates-panel')?.classList.toggle('hidden', tab !== 'templates');
             document.getElementById('all-animation-panel')?.classList.toggle('hidden', tab !== 'animation');
+        });
+    });
+
+    // Specials subsection tabs (text / animation)
+    document.querySelectorAll('[data-specials-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-specials-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const tab = btn.dataset.specialsTab;
+            document.getElementById('specials-text-panel')?.classList.toggle('hidden', tab !== 'text');
+            document.getElementById('specials-animation-panel')?.classList.toggle('hidden', tab !== 'animation');
         });
     });
 
@@ -2301,21 +2315,47 @@ function initGlobalStyleControls() {
         });
     }
 
-    // Animation controls
-    document.getElementById('global-animation').addEventListener('change', (e) => {
+    // Animation controls — Per-Line
+    document.getElementById('global-line-animation')?.addEventListener('change', (e) => {
         if (subtitleTrack) {
-            subtitleTrack.animation_type = e.target.value;
+            subtitleTrack.line_animation_type = e.target.value;
             preview?.setTrack(subtitleTrack);
             autoSave();
         }
     });
-    document.getElementById('global-anim-duration').addEventListener('input', (e) => {
-        document.getElementById('global-anim-dur-val').textContent = `${e.target.value}s`;
+    document.getElementById('global-line-anim-duration')?.addEventListener('input', (e) => {
+        document.getElementById('global-line-anim-dur-val').textContent = `${e.target.value}s`;
         if (subtitleTrack) {
-            subtitleTrack.animation_duration = parseFloat(e.target.value);
+            subtitleTrack.line_animation_duration = parseFloat(e.target.value);
             preview?.setTrack(subtitleTrack);
             autoSave();
         }
+    });
+
+    // Animation controls — Per-Word
+    document.getElementById('global-word-animation')?.addEventListener('change', (e) => {
+        if (subtitleTrack) {
+            subtitleTrack.word_animation_type = e.target.value;
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+        }
+    });
+    document.getElementById('global-word-anim-duration')?.addEventListener('input', (e) => {
+        document.getElementById('global-word-anim-dur-val').textContent = `${e.target.value}s`;
+        if (subtitleTrack) {
+            subtitleTrack.word_animation_duration = parseFloat(e.target.value);
+            preview?.setTrack(subtitleTrack);
+            autoSave();
+        }
+    });
+
+    // Specials Animation controls — Per-Word (for highlight/spotlight markers)
+    document.getElementById('special-word-animation')?.addEventListener('change', (e) => {
+        // TODO: Wire to marker-specific word animation when needed
+        // For now, this is a placeholder for future per-marker word animation
+    });
+    document.getElementById('special-word-anim-duration')?.addEventListener('input', (e) => {
+        document.getElementById('special-word-anim-dur-val').textContent = `${e.target.value}s`;
     });
 }
 

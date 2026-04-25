@@ -127,10 +127,9 @@
                             <span class="material-symbols-outlined" style="font-size:14px">sync</span> Use Global Style
                         </button>
                     </div>
-                    <!-- All: Text / Templates / Animation Tabs -->
+                    <!-- All: Text / Animation Tabs -->
                     <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
                         <button class="tab-btn active flex-shrink-0 text-xs" data-all-tab="text">Text</button>
-                        <button class="tab-btn flex-shrink-0 text-xs" data-all-tab="templates">Templates</button>
                         <button class="tab-btn flex-shrink-0 text-xs" data-all-tab="animation">Animation</button>
                     </div>
 
@@ -322,29 +321,51 @@
                         </details>
                     </div>
 
-                    <!-- All: Templates Panel -->
-                    <div class="flex-1 overflow-y-auto p-4 space-y-3 hidden" id="all-templates-panel">
-                        <!-- Populated by JS -->
-                    </div>
-
                     <!-- All: Animation Panel -->
-                    <div class="flex-1 overflow-y-auto p-4 space-y-4 hidden" id="all-animation-panel">
-                        <div>
-                            <label class="style-label">Animation Type</label>
-                            <select id="global-animation" class="style-select">
-                                <option value="none">None</option>
-                                <option value="fade">Fade In/Out</option>
-                                <option value="slide_up">Slide Up</option>
-                                <option value="slide_down">Slide Down</option>
-                                <option value="typewriter">Typewriter</option>
-                                <option value="karaoke">Karaoke Highlight</option>
-                                <option value="pop">Pop / Scale</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="style-label">Duration: <span id="global-anim-dur-val">0.3s</span></label>
-                            <input type="range" id="global-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="style-range"/>
-                        </div>
+                    <div class="flex-1 overflow-y-auto p-3 space-y-1 hidden" id="all-animation-panel">
+                        <!-- Per-Line Animation -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🎬 Per-Line Animation</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Animation Type</label>
+                                    <select id="global-line-animation" class="style-select">
+                                        <option value="none">None</option>
+                                        <option value="fade">Fade In/Out</option>
+                                        <option value="slide_up">Slide Up</option>
+                                        <option value="slide_down">Slide Down</option>
+                                        <option value="pop">Pop / Scale</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="style-label">Duration: <span id="global-line-anim-dur-val">0.3s</span></label>
+                                    <input type="range" id="global-line-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="style-range"/>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- Per-Word Animation -->
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🔤 Per-Word Animation</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Animation Type</label>
+                                    <select id="global-word-animation" class="style-select">
+                                        <option value="none">None</option>
+                                        <option value="fade">Fade In</option>
+                                        <option value="slide_up">Slide Up</option>
+                                        <option value="slide_down">Slide Down</option>
+                                        <option value="typewriter">Typewriter</option>
+                                        <option value="karaoke">Karaoke Highlight</option>
+                                        <option value="pop">Pop / Scale</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="style-label">Duration: <span id="global-word-anim-dur-val">0.3s</span></label>
+                                    <input type="range" id="global-word-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="style-range"/>
+                                </div>
+                            </div>
+                        </details>
                     </div>
                 </div>
 
@@ -373,6 +394,12 @@
                         <div class="flex flex-wrap gap-1" id="specials-word-chips">
                             <span class="text-xs text-slate-400 italic">No words assigned yet</span>
                         </div>
+                    </div>
+
+                    <!-- Specials sub-tabs: Text | Animation -->
+                    <div class="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
+                        <button class="tab-btn active flex-shrink-0 text-xs" data-specials-tab="text">Text</button>
+                        <button class="tab-btn flex-shrink-0 text-xs" data-specials-tab="animation">Animation</button>
                     </div>
 
                     <!-- Specials: Text Panel (always visible) -->
@@ -537,6 +564,31 @@
                                 <div>
                                     <label class="style-label">Text Opacity: <span id="special-opacity-val">100</span>%</label>
                                     <input type="range" id="special-opacity" min="0" max="100" value="100" class="style-range"/>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+
+                    <!-- Specials: Animation Panel (Per-Word only) -->
+                    <div class="flex-1 overflow-y-auto p-3 space-y-1 hidden" id="specials-animation-panel">
+                        <details class="style-group" open>
+                            <summary class="style-group-header">🔤 Per-Word Animation</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">Animation Type</label>
+                                    <select id="special-word-animation" class="style-select">
+                                        <option value="none">None</option>
+                                        <option value="fade">Fade In</option>
+                                        <option value="slide_up">Slide Up</option>
+                                        <option value="slide_down">Slide Down</option>
+                                        <option value="typewriter">Typewriter</option>
+                                        <option value="karaoke">Karaoke Highlight</option>
+                                        <option value="pop">Pop / Scale</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="style-label">Duration: <span id="special-word-anim-dur-val">0.3s</span></label>
+                                    <input type="range" id="special-word-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="style-range"/>
                                 </div>
                             </div>
                         </details>

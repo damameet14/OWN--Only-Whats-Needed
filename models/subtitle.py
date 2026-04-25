@@ -118,8 +118,8 @@ class StyledWord:
         'spotlight' → track.spotlight_style (or style_override if apply-all=false)
     style_override: individual per-word style (used when apply-all=false for highlight/spotlight)
     position_preset: optional 3×3 grid position for this word (e.g. 'top-center')
-    animation_type: optional per-word animation override
-    animation_duration: optional per-word animation duration override
+    word_animation_type: optional per-word animation override
+    word_animation_duration: optional per-word animation duration override
     """
     word: str
     start_time: float
@@ -128,8 +128,8 @@ class StyledWord:
     marker: str = "standard"                          # standard / highlight / spotlight
     style_override: Optional[SubtitleStyle] = None   # None = use marker's pool style
     position_preset: Optional[str] = None            # None = use segment position; e.g. 'top-center'
-    animation_type: Optional[str] = None             # None = use segment/track animation
-    animation_duration: Optional[float] = None       # None = use segment/track duration
+    word_animation_type: Optional[str] = None        # None = use segment/track word animation
+    word_animation_duration: Optional[float] = None  # None = use segment/track word duration
 
     @classmethod
     def from_word_timing(cls, wt: WordTiming) -> StyledWord:
@@ -152,10 +152,10 @@ class StyledWord:
             d["style_override"] = self.style_override.to_dict()
         if self.position_preset is not None:
             d["position_preset"] = self.position_preset
-        if self.animation_type is not None:
-            d["animation_type"] = self.animation_type
-        if self.animation_duration is not None:
-            d["animation_duration"] = self.animation_duration
+        if self.word_animation_type is not None:
+            d["word_animation_type"] = self.word_animation_type
+        if self.word_animation_duration is not None:
+            d["word_animation_duration"] = self.word_animation_duration
         return d
 
     @classmethod
@@ -178,8 +178,9 @@ class StyledWord:
             marker=marker,
             style_override=style,
             position_preset=d.get("position_preset"),
-            animation_type=d.get("animation_type"),
-            animation_duration=d.get("animation_duration"),
+            # Backwards compat: old animation_type → word_animation_type
+            word_animation_type=d.get("word_animation_type", d.get("animation_type")),
+            word_animation_duration=d.get("word_animation_duration", d.get("animation_duration")),
         )
 
 
@@ -190,15 +191,18 @@ class SubtitleSegment:
     apply_for_all: when True, this segment follows global style changes.
         When False, this segment has independent style/position/animation.
     position_x/y: per-segment position overrides (None = use track position).
-    animation_type/duration: per-segment animation overrides (None = use track).
+    line_animation_type/duration: per-segment line animation overrides (None = use track).
+    word_animation_type/duration: per-segment word animation overrides (None = use track).
     """
     words: list[StyledWord] = field(default_factory=list)
     style: SubtitleStyle = field(default_factory=SubtitleStyle)
     apply_for_all: bool = True
     position_x: Optional[float] = None   # None = use track.position_x
     position_y: Optional[float] = None   # None = use track.position_y
-    animation_type: Optional[str] = None       # None = use track.animation_type
-    animation_duration: Optional[float] = None # None = use track.animation_duration
+    line_animation_type: Optional[str] = None       # None = use track.line_animation_type
+    line_animation_duration: Optional[float] = None # None = use track.line_animation_duration
+    word_animation_type: Optional[str] = None       # None = use track.word_animation_type
+    word_animation_duration: Optional[float] = None # None = use track.word_animation_duration
 
     @property
     def start_time(self) -> float:
@@ -222,10 +226,14 @@ class SubtitleSegment:
             d["position_x"] = self.position_x
         if self.position_y is not None:
             d["position_y"] = self.position_y
-        if self.animation_type is not None:
-            d["animation_type"] = self.animation_type
-        if self.animation_duration is not None:
-            d["animation_duration"] = self.animation_duration
+        if self.line_animation_type is not None:
+            d["line_animation_type"] = self.line_animation_type
+        if self.line_animation_duration is not None:
+            d["line_animation_duration"] = self.line_animation_duration
+        if self.word_animation_type is not None:
+            d["word_animation_type"] = self.word_animation_type
+        if self.word_animation_duration is not None:
+            d["word_animation_duration"] = self.word_animation_duration
         return d
 
     @classmethod
@@ -238,8 +246,11 @@ class SubtitleSegment:
             apply_for_all=d.get("apply_for_all", True),
             position_x=d.get("position_x"),
             position_y=d.get("position_y"),
-            animation_type=d.get("animation_type"),
-            animation_duration=d.get("animation_duration"),
+            # Backwards compat: old animation_type → line_animation_type
+            line_animation_type=d.get("line_animation_type", d.get("animation_type")),
+            line_animation_duration=d.get("line_animation_duration", d.get("animation_duration")),
+            word_animation_type=d.get("word_animation_type"),
+            word_animation_duration=d.get("word_animation_duration"),
         )
 
 
@@ -268,8 +279,10 @@ class SubtitleTrack:
     position_x: float = 0.5   # 0.0–1.0 normalised (0.5 = center)
     position_y: float = 0.9   # 0.0–1.0 normalised (0.9 = near bottom)
     text_box_width: float = 0.8  # 0.0–1.0 — fraction of video width for text wrapping
-    animation_type: str = "none"
-    animation_duration: float = 0.3  # seconds
+    line_animation_type: str = "none"
+    line_animation_duration: float = 0.3  # seconds
+    word_animation_type: str = "none"
+    word_animation_duration: float = 0.3  # seconds
     video_rotation: int = 0  # angle in degrees
     sentence_mode: bool = False  # if True, segments are defined by \n in full text
 
@@ -314,8 +327,10 @@ class SubtitleTrack:
             "position_x": self.position_x,
             "position_y": self.position_y,
             "text_box_width": self.text_box_width,
-            "animation_type": self.animation_type,
-            "animation_duration": self.animation_duration,
+            "line_animation_type": self.line_animation_type,
+            "line_animation_duration": self.line_animation_duration,
+            "word_animation_type": self.word_animation_type,
+            "word_animation_duration": self.word_animation_duration,
             "video_rotation": self.video_rotation,
             "sentence_mode": self.sentence_mode,
         }
@@ -346,8 +361,11 @@ class SubtitleTrack:
             position_x=d.get("position_x", 0.5),
             position_y=d.get("position_y", 0.9),
             text_box_width=d.get("text_box_width", 0.8),
-            animation_type=d.get("animation_type", "none"),
-            animation_duration=d.get("animation_duration", 0.3),
+            # Backwards compat: old animation_type → line_animation_type
+            line_animation_type=d.get("line_animation_type", d.get("animation_type", "none")),
+            line_animation_duration=d.get("line_animation_duration", d.get("animation_duration", 0.3)),
+            word_animation_type=d.get("word_animation_type", "none"),
+            word_animation_duration=d.get("word_animation_duration", 0.3),
             video_rotation=d.get("video_rotation", 0),
             sentence_mode=d.get("sentence_mode", False),
         )
