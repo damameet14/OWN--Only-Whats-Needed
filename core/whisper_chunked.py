@@ -15,6 +15,7 @@ from server.config import (
     WHISPER_MAX_CHUNK_DURATION,
     WHISPER_MIN_SILENCE_DURATION,
     WHISPER_SILENCE_THRESHOLD,
+    get_ffmpeg_path,
 )
 
 # Configure logging
@@ -218,7 +219,7 @@ def _extract_audio(video_path: str) -> str:
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg_path(), "-y",
         "-i", video_path,
         "-ar", "16000",
         "-ac", "1",
@@ -250,7 +251,7 @@ def _extract_chunk_audio(wav_path: str, start_time: float, end_time: float) -> s
     duration = end_time - start_time
 
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg_path(), "-y",
         "-ss", str(start_time),
         "-i", wav_path,
         "-t", str(duration),

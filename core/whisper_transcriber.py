@@ -13,6 +13,7 @@ import asyncio
 from typing import AsyncGenerator, Optional
 
 from models.subtitle import WordTiming
+from server.config import get_ffmpeg_path
 
 
 async def transcribe_whisper(
@@ -75,7 +76,7 @@ def _extract_audio(video_path: str) -> str:
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg_path(), "-y",
         "-i", video_path,
         "-ar", "16000",
         "-ac", "1",

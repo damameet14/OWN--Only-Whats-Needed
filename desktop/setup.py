@@ -6,7 +6,10 @@ import platform
 import sys
 import subprocess
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if getattr(sys, 'frozen', False):
+    _PROJECT_ROOT = os.path.dirname(sys.executable)
+else:
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP_MARKER = os.path.join(_PROJECT_ROOT, "data", ".setup_complete")
 
 
@@ -85,9 +88,12 @@ def configure_hosts_file(hostname: str = "own.local", ip: str = "127.0.0.1") -> 
 
 
 def check_models_installed() -> bool:
-    """Check if any Vosk or Whisper models are present."""
-    for entry in os.listdir(_PROJECT_ROOT):
-        if entry.startswith("vosk-model") and os.path.isdir(os.path.join(_PROJECT_ROOT, entry)):
+    """Check if any Whisper models are present in models_data."""
+    models_dir = os.path.join(_PROJECT_ROOT, "models_data")
+    if not os.path.isdir(models_dir):
+        return False
+    for entry in os.listdir(models_dir):
+        if os.path.isdir(os.path.join(models_dir, entry)):
             return True
     return False
 

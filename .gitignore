@@ -1,8 +1,37 @@
-venv
-vosk*model*
-__pycache__
-UI guide
-data
-indic-conformer-600m-multilingual
-ai4bharat_test.py
-test*.*
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Runtime data
+data/
+own.db
+
+# Models (large files, downloaded at runtime)
+models_data/
+vosk_models/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Bundled binaries (user must place these manually or via build script)
+bin/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.gemini/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Old / generated (root-level only)
+/test*.*
+!tests/

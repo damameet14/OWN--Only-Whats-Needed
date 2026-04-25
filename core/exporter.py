@@ -27,7 +27,7 @@ from PySide6.QtCore import Qt, QPointF, QRectF
 from models.subtitle import SubtitleTrack, SubtitleSegment, SubtitleStyle
 from models.animations import AnimationType, compute_animation_state, compute_word_animation_state, WordAnimationState
 from core.video_utils import get_video_info, OUTPUT_FORMATS
-from server.config import FONTS_DIR
+from server.config import FONTS_DIR, get_ffmpeg_path
 
 
 # ── Qt Application singleton ─────────────────────────────────────────────────
@@ -212,7 +212,7 @@ async def export_video(
                 temp_preprocessed.close()
                 
                 concat_cmd = [
-                    "ffmpeg", "-y",
+                    get_ffmpeg_path(), "-y",
                     "-i", video_path,
                     "-filter_complex", filter_str,
                     "-map", "[outv]", "-map", "[outa]",
@@ -235,7 +235,7 @@ async def export_video(
 
     def _extract_audio():
         audio_cmd = [
-            "ffmpeg", "-y",
+            get_ffmpeg_path(), "-y",
             "-i", source_video_path,
             "-vn", "-acodec", "aac", "-b:a", "192k",
             audio_tmp.name,
@@ -257,7 +257,7 @@ async def export_video(
     def _render_all_frames():
         """Decode → render → encode pipeline in a thread."""
         decode_cmd = [
-            "ffmpeg", "-y",
+            get_ffmpeg_path(), "-y",
             "-i", source_video_path,
             "-f", "rawvideo",
             "-pix_fmt", "rgb24",
@@ -267,7 +267,7 @@ async def export_video(
         ]
 
         encode_cmd = [
-            "ffmpeg", "-y",
+            get_ffmpeg_path(), "-y",
             "-f", "rawvideo",
             "-pix_fmt", "rgb24",
             "-s", f"{w}x{h}",

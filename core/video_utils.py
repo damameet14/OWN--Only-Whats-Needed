@@ -6,6 +6,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
+from server.config import get_ffprobe_path
+
 
 @dataclass
 class VideoInfo:
@@ -26,7 +28,7 @@ class VideoInfo:
 def get_video_info(path: str) -> VideoInfo:
     """Probe a video file and return its metadata."""
     cmd = [
-        "ffprobe",
+        get_ffprobe_path(),
         "-v", "quiet",
         "-print_format", "json",
         "-show_format",

@@ -7,6 +7,8 @@ import sys
 import re
 import asyncio
 
+from server.config import get_ffmpeg_path, get_ffprobe_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,7 +67,7 @@ async def _get_audio_duration(wav_path: str) -> float:
     """Get audio duration using FFprobe."""
     logger.debug(f"[SILENCE] Getting audio duration for: {wav_path}")
     cmd = [
-        "ffprobe", "-v", "error",
+        get_ffprobe_path(), "-v", "error",
         "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1",
         wav_path
@@ -96,7 +98,7 @@ async def _detect_silence_with_ffmpeg(
     """Run FFmpeg silencedetect and parse output."""
     logger.debug(f"[SILENCE] Running FFmpeg silencedetect: threshold={silence_threshold}dB, duration={min_silence_duration}s")
     cmd = [
-        "ffmpeg", "-v", "info",
+        get_ffmpeg_path(), "-v", "info",
         "-i", wav_path,
         "-af", f"silencedetect=noise={silence_threshold}dB:duration={min_silence_duration}",
         "-f", "null",
