@@ -35,3 +35,4 @@ Thumbs.db
 # Old / generated (root-level only)
 /test*.*
 !tests/
+Subtitle Editor Animation Integration.md
