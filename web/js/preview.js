@@ -631,6 +631,140 @@ class SubtitlePreview {
         }
         return style.text_color || '#FFFFFF';
     }
+
+    /**
+     * Compute exact word positions for export.
+     * Uses the SAME canvas and scaleFactor as the preview so that
+     * ctx.measureText() returns identical widths. Then scales all
+     * positions to video resolution by dividing by scaleFactor.
+     */
+    computeExportLayout(track, videoW, videoH) {
+        // Use the preview's own canvas and context — same as rendering
+        const ctx = this.ctx;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const scaleFactor = w / (videoW || 1920);
+        ctx.textBaseline = 'top';
+
+        const segmentLayouts = [];
+
+        for (const seg of track.segments) {
+            const segStyle = seg.style || track.global_style || {};
+            const boxW = (track.text_box_width ?? 0.8) * w;  // in canvas pixels
+            const posX = seg.position_x ?? track.position_x ?? 0.5;
+            const posY = seg.position_y ?? track.position_y ?? 0.9;
+
+            const hasNonStandard = seg.words.some(w =>
+                (w.marker && w.marker !== 'standard') || w.style_override
+            );
+            const wordAnimType = seg.word_animation_type ?? track.word_animation_type ?? 'none';
+            const needsWordByWord = hasNonStandard || wordAnimType !== 'none';
+
+            if (needsWordByWord) {
+                // Word-by-word layout — same logic as drawSegmentWordByWord
+                const wordLayouts = [];
+                const wordInfos = seg.words.map((word, idx) => {
+                    const style = this.getWordStyle(word, segStyle, track);
+                    const fontSize = Math.round((style.font_size || 48) * scaleFactor);
+                    const fontStr = this.buildFontStr(style, fontSize);
+                    ctx.font = fontStr;
+                    const text = this.applyTextTransform(word.word, style.text_transform) + (idx < seg.words.length - 1 ? ' ' : '');
+                    const measured = ctx.measureText(text);
+                    return { text, style, fontSize, fontStr, width: measured.width, wordIdx: idx };
+                });
+
+                // Group into lines (canvas-pixel space)
+                const lines = [];
+                let currentLine = [];
+                let currentLineW = 0;
+                for (const info of wordInfos) {
+                    if (currentLine.length > 0 && currentLineW + info.width > boxW) {
+                        lines.push(currentLine);
+                        currentLine = [info];
+                        currentLineW = info.width;
+                    } else {
+                        currentLine.push(info);
+                        currentLineW += info.width;
+                    }
+                }
+                if (currentLine.length > 0) lines.push(currentLine);
+
+                // All in canvas-pixel space (same as preview)
+                const baseLineH = (segStyle.font_size || 48) * scaleFactor * (segStyle.line_height ?? 1.2);
+                const totalH = baseLineH * lines.length;
+                const baseX = posX * w;
+                const baseY = posY * h - totalH;
+
+                for (let li = 0; li < lines.length; li++) {
+                    const line = lines[li];
+                    const lineW = line.reduce((s, info) => s + info.width, 0);
+                    let curX = baseX - lineW / 2;
+                    const ly = baseY + li * baseLineH;
+
+                    for (const info of line) {
+                        // Convert canvas-pixel → video-pixel by dividing by scaleFactor
+                        wordLayouts.push({
+                            word_idx: info.wordIdx,
+                            x: curX / scaleFactor,
+                            y: ly / scaleFactor,
+                            width: info.width / scaleFactor,
+                            line_height: baseLineH / scaleFactor,
+                        });
+                        curX += info.width;
+                    }
+                }
+
+                segmentLayouts.push({
+                    seg_idx: track.segments.indexOf(seg),
+                    mode: 'word_by_word',
+                    words: wordLayouts,
+                    base_line_h: baseLineH / scaleFactor,
+                });
+            } else {
+                // Uniform layout — same logic as drawSegmentUniform
+                const style = segStyle;
+                const fontSize = Math.round((style.font_size || 48) * scaleFactor);
+                const fontStr = this.buildFontStr(style, fontSize);
+                ctx.font = fontStr;
+
+                const fullText = this.applyTextTransform(
+                    seg.words.map(w => w.word).join(' '),
+                    style.text_transform
+                );
+                const lines = this._wrapText(ctx, fullText, boxW);
+                const lineH = fontSize * (style.line_height ?? 1.2);
+                const totalH = lineH * lines.length;
+                const baseX = posX * w;
+                const baseY = posY * h - totalH;
+
+                const lineLayouts = [];
+                for (let li = 0; li < lines.length; li++) {
+                    const lineText = lines[li];
+                    const metrics = ctx.measureText(lineText);
+                    const lineW = metrics.width;
+                    const lx = baseX - lineW / 2;
+                    const ly = baseY + li * lineH;
+                    // Convert canvas-pixel → video-pixel
+                    lineLayouts.push({
+                        text: lineText,
+                        x: lx / scaleFactor,
+                        y: ly / scaleFactor,
+                        width: lineW / scaleFactor,
+                        line_height: lineH / scaleFactor,
+                    });
+                }
+
+                segmentLayouts.push({
+                    seg_idx: track.segments.indexOf(seg),
+                    mode: 'uniform',
+                    lines: lineLayouts,
+                    base_line_h: lineH / scaleFactor,
+                });
+            }
+        }
+
+        return segmentLayouts;
+    }
 }
 
 

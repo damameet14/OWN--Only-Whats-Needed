@@ -368,16 +368,17 @@ async def start_export(project_id: int, body: dict = Body(default=None)):
 
     body = body or {}
     format_key = body.get("format", "MP4 (H.264)")
+    layout_data = body.get("layout_data", None)
 
     task_id = uuid.uuid4().hex
     _tasks[task_id] = {"percent": 0, "message": "Starting export...", "result": None}
     _task_events[task_id] = asyncio.Event()
 
-    asyncio.create_task(_run_export(task_id, project, format_key))
+    asyncio.create_task(_run_export(task_id, project, format_key, layout_data))
     return {"task_id": task_id}
 
 
-async def _run_export(task_id: str, project: dict, format_key: str):
+async def _run_export(task_id: str, project: dict, format_key: str, layout_data=None):
     """Background task for video export."""
     try:
         from core.exporter import export_video
@@ -396,7 +397,7 @@ async def _run_export(task_id: str, project: dict, format_key: str):
         output_name = f"{base_name}_captioned_{uuid.uuid4().hex[:6]}{ext}"
         output_path = os.path.join(EXPORTS_DIR, output_name)
 
-        gen = export_video(project["video_path"], output_path, track, format_key)
+        gen = export_video(project["video_path"], output_path, track, format_key, layout_data=layout_data)
 
         async for progress, message, result in gen:
             _tasks[task_id] = {"percent": progress, "message": message, "result": None}

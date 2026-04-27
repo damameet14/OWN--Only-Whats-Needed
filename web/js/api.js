@@ -90,10 +90,12 @@ async function startTranscription(projectId, options = {}) {
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-async function startExport(projectId, format = 'MP4 (H.264)') {
+async function startExport(projectId, format = 'MP4 (H.264)', layoutData = null) {
+    const body = { format };
+    if (layoutData) body.layout_data = layoutData;
     return apiRequest(`/api/projects/${projectId}/export`, {
         method: 'POST',
-        body: JSON.stringify({ format }),
+        body: JSON.stringify(body),
     });
 }
 

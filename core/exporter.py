@@ -90,6 +90,7 @@ async def export_video(
     output_path: str,
     subtitle_track: SubtitleTrack,
     output_format_key: str = "MP4 (H.264)",
+    layout_data: list = None,
 ) -> AsyncGenerator[tuple[int, str, Optional[str]], None]:
     """Async generator that exports video with burned-in subtitles.
 
@@ -208,6 +209,12 @@ async def export_video(
         frame_size = w * h * 3
         frame_number = 0
 
+        # Build layout lookup: seg_idx → layout
+        _layout_map = {}
+        if layout_data:
+            for entry in layout_data:
+                _layout_map[entry["seg_idx"]] = entry
+
         has_error = False
         try:
             while True:
@@ -227,7 +234,7 @@ async def export_video(
                     img = img.rotate(-subtitle_track.video_rotation, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=(0,0,0))
 
                 # Render subtitles
-                _render_subtitle_on_frame(img, current_time, subtitle_track, w, h)
+                _render_subtitle_on_frame(img, current_time, subtitle_track, w, h, _layout_map)
 
                 # Write rendered frame
                 encoder.stdin.write(img.tobytes())
@@ -296,11 +303,21 @@ async def export_video(
 def _render_subtitle_on_frame(
     img: Image.Image, current_time: float,
     track: SubtitleTrack, w: int, h: int,
+    layout_map: dict = None,
 ):
     """Render the active subtitle segment onto a PIL Image using Skia."""
     seg = track.segment_at(current_time)
     if seg is None:
         return
+
+    # Find segment index for layout lookup
+    seg_idx = None
+    if layout_map:
+        for i, s in enumerate(track.segments):
+            if s is seg:
+                seg_idx = i
+                break
+    seg_layout = layout_map.get(seg_idx) if (layout_map and seg_idx is not None) else None
 
     # Resolve per-line animation (segment override → track default)
     line_anim_str = getattr(seg, 'line_animation_type', None) or track.line_animation_type
@@ -330,12 +347,16 @@ def _render_subtitle_on_frame(
     canvas.clear(skia.Color(0, 0, 0, 0))
 
     _paint_subtitle(canvas, seg, track, anim_state, word_anim_type, word_anim_dur,
-                    current_time, w, h)
+                    current_time, w, h, seg_layout)
 
     # Convert Skia surface → PIL RGBA and composite
-    skia_image = surface.makeImageSnapshot()
-    overlay_bytes = skia_image.tobytes()
-    overlay_pil = Image.frombytes("RGBA", (w, h), overlay_bytes)
+    # IMPORTANT: use toarray() with explicit RGBA color type.
+    # tobytes() returns native BGRA which swaps R/B channels!
+    overlay_img_np = surface.makeImageSnapshot().toarray(
+        colorType=skia.ColorType.kRGBA_8888_ColorType,
+        alphaType=skia.AlphaType.kUnpremul_AlphaType
+    )
+    overlay_pil = Image.fromarray(overlay_img_np, "RGBA")
 
     if img.mode != "RGBA":
         img_rgba = img.convert("RGBA")
@@ -370,7 +391,7 @@ def _get_word_style(word, seg_style: SubtitleStyle, track: SubtitleTrack) -> Sub
 
 def _paint_subtitle(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state,
                     word_anim_type: AnimationType, word_anim_dur: float,
-                    current_time: float, frame_w, frame_h):
+                    current_time: float, frame_w, frame_h, seg_layout=None):
     """Paint subtitle text — routes to word-by-word if non-standard markers or word animation."""
     has_non_standard = any(
         getattr(w, 'marker', 'standard') != 'standard' or w.style_override is not None
@@ -383,9 +404,9 @@ def _paint_subtitle(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state,
     if needs_word_by_word:
         _paint_subtitle_word_by_word(canvas, seg, track, anim_state,
                                      word_anim_type, word_anim_dur, current_time,
-                                     frame_w, frame_h)
+                                     frame_w, frame_h, seg_layout)
     else:
-        _paint_subtitle_uniform(canvas, seg, track, anim_state, frame_w, frame_h)
+        _paint_subtitle_uniform(canvas, seg, track, anim_state, frame_w, frame_h, seg_layout)
 
 
 # ── Draw helpers ──────────────────────────────────────────────────────────────
@@ -409,43 +430,27 @@ def _draw_text_blob(canvas: skia.Canvas, blob: skia.TextBlob, x: float, y: float
             advance_width + bg_pad * 2, line_h + bg_pad * 2)
         canvas.drawRect(bg_rect, bg_paint)
 
-    # ── Shadow ────────────────────────────────────────────────────────────
+    # ── Prepare shadow as DropShadow image filter ─────────────────────────
+    shadow_filter = None
     if (style.shadow_enabled and style.shadow_color and
             (style.shadow_offset_x or style.shadow_offset_y or style.shadow_blur)):
-        shadow_paint = skia.Paint(AntiAlias=True)
-        shadow_paint.setColor(_parse_hex_color(style.shadow_color, effective_opacity))
-        sx = x + style.shadow_offset_x
-        sy = y + style.shadow_offset_y
+        sc = _parse_hex_color(style.shadow_color, effective_opacity)
+        shadow_filter = skia.ImageFilters.DropShadow(
+            style.shadow_offset_x, style.shadow_offset_y,
+            style.shadow_blur, style.shadow_blur, sc
+        )
 
-        if style.shadow_blur > 0:
-            shadow_paint.setMaskFilter(
-                skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, style.shadow_blur / 2.0)
-            )
-        # Draw shadow twice to boost intensity (blur dilutes alpha)
-        canvas.drawTextBlob(blob, sx, sy, shadow_paint)
-        canvas.drawTextBlob(blob, sx, sy, shadow_paint)
-
-    # ── Stroke (drawn before fill so fill covers the inner stroke) ────────
-    if style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
-        stroke_paint = skia.Paint(AntiAlias=True)
-        stroke_paint.setStyle(skia.Paint.kStroke_Style)
-        stroke_paint.setColor(_parse_hex_color(style.outline_color, effective_opacity))
-        stroke_paint.setStrokeWidth(style.outline_width * 2)
-        stroke_paint.setStrokeJoin(skia.Paint.kRound_Join)
-        canvas.drawTextBlob(blob, x, y, stroke_paint)
-
-    # ── Fill (drawn last, on top of stroke) ───────────────────────────────
+    # ── Fill paint ────────────────────────────────────────────────────────
     fill_paint = skia.Paint(AntiAlias=True)
 
     if is_highlighted:
         fill_paint.setColor(_parse_hex_color('#FFD700', effective_opacity))
     elif style.fill_type == "gradient":
-        # Build a linear gradient shader
         c1 = _parse_hex_color(style.gradient_color1, effective_opacity)
         c2 = _parse_hex_color(style.gradient_color2, effective_opacity)
         rad = math.radians(getattr(style, 'gradient_angle', 0))
         cx = x + advance_width / 2
-        cy = y - line_h / 2   # blob is drawn at baseline, so center is above
+        cy = y - line_h / 2
         dx = math.cos(rad) * advance_width / 2
         dy = math.sin(rad) * line_h / 2
         shader = skia.GradientShader.MakeLinear(
@@ -456,23 +461,40 @@ def _draw_text_blob(canvas: skia.Canvas, blob: skia.TextBlob, x: float, y: float
     else:
         fill_paint.setColor(_parse_hex_color(style.text_color, effective_opacity))
 
-    canvas.drawTextBlob(blob, x, y, fill_paint)
+    # ── Stroke + Shadow ───────────────────────────────────────────────────
+    if style.stroke_enabled and getattr(style, 'outline_width', 0) > 0:
+        stroke_paint = skia.Paint(AntiAlias=True)
+        stroke_paint.setStyle(skia.Paint.kStroke_Style)
+        stroke_paint.setColor(_parse_hex_color(style.outline_color, effective_opacity))
+        stroke_paint.setStrokeWidth(style.outline_width * 2)
+        stroke_paint.setStrokeJoin(skia.Paint.kRound_Join)
+        # Shadow goes on stroke paint (drawn first), fill has no shadow
+        if shadow_filter:
+            stroke_paint.setImageFilter(shadow_filter)
+        canvas.drawTextBlob(blob, x, y, stroke_paint)
+        # Fill on top without shadow
+        canvas.drawTextBlob(blob, x, y, fill_paint)
+    else:
+        # No stroke — shadow goes on the fill paint
+        if shadow_filter:
+            fill_paint.setImageFilter(shadow_filter)
+        canvas.drawTextBlob(blob, x, y, fill_paint)
+
 
 
 # ── Word-by-word rendering ────────────────────────────────────────────────────
 
 def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state,
                                   word_anim_type: AnimationType, word_anim_dur: float,
-                                  current_time: float, frame_w, frame_h):
+                                  current_time: float, frame_w, frame_h, seg_layout=None):
     """Render each word individually with its own style and per-word animation."""
-    pos_x = getattr(seg, 'position_x', None)
-    if pos_x is None:
-        pos_x = track.position_x
-    pos_y = getattr(seg, 'position_y', None)
-    if pos_y is None:
-        pos_y = track.position_y
     seg_style = seg.style
-    box_w = track.text_box_width * frame_w
+
+    # Build pre-computed position lookup: word_idx → {x, y, width, line_height}
+    layout_by_idx = {}
+    if seg_layout and seg_layout.get("mode") == "word_by_word" and seg_layout.get("words"):
+        for wl in seg_layout["words"]:
+            layout_by_idx[wl["word_idx"]] = wl
 
     # 1. Shape every word and compute per-word animation
     word_infos = []
@@ -500,17 +522,70 @@ def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack,
             frame_height=float(frame_h),
         )
 
-        word_infos.append((display, style, shaped, word, w_anim_state))
+        word_infos.append((display, style, shaped, word, w_anim_state, i))
 
     if not word_infos:
         return
 
-    # 2. Wrap into lines respecting box_w
+    # If we have pre-computed layout, use those positions directly
+    if layout_by_idx:
+        for display, style, shaped, word, w_anim, word_idx in word_infos:
+            wl = layout_by_idx.get(word_idx)
+            if wl is None:
+                continue
+
+            if not w_anim.visible:
+                continue
+
+            word_opacity = w_anim.opacity
+            effective_opacity = anim_state.opacity * word_opacity * getattr(style, 'text_opacity', 1.0)
+            if effective_opacity <= 0:
+                continue
+
+            # Use frontend-computed positions + animation offsets
+            # Frontend uses textBaseline='top', so y is top of text.
+            # Skia drawTextBlob uses baseline, so add ascent.
+            draw_x = wl["x"] + w_anim.offset_x + anim_state.offset_x
+            draw_y = wl["y"] + w_anim.offset_y + anim_state.offset_y + shaped.ascent
+
+            line_h = wl.get("line_height", shaped.line_height)
+
+            if w_anim.scale != 1.0 and shaped.blob is not None:
+                canvas.save()
+                cx = draw_x + wl["width"] / 2
+                cy = draw_y - shaped.ascent / 2
+                canvas.translate(cx, cy)
+                canvas.scale(w_anim.scale, w_anim.scale)
+                canvas.translate(-cx, -cy)
+                _draw_text_blob(canvas, shaped.blob, draw_x, draw_y,
+                               style, effective_opacity,
+                               wl["width"], line_h,
+                               is_highlighted=w_anim.is_highlighted,
+                               frame_w=frame_w, frame_h=frame_h)
+                canvas.restore()
+            else:
+                _draw_text_blob(canvas, shaped.blob, draw_x, draw_y,
+                               style, effective_opacity,
+                               wl["width"], line_h,
+                               is_highlighted=w_anim.is_highlighted,
+                               frame_w=frame_w, frame_h=frame_h)
+        return
+
+    # ── Fallback: compute positions on backend (no layout_data) ──
+    pos_x = getattr(seg, 'position_x', None)
+    if pos_x is None:
+        pos_x = track.position_x
+    pos_y = getattr(seg, 'position_y', None)
+    if pos_y is None:
+        pos_y = track.position_y
+    box_w = track.text_box_width * frame_w
+
+    # Wrap into lines
     lines: list[list[tuple]] = []
     current_line: list[tuple] = []
     current_line_w = 0.0
     for info in word_infos:
-        w_adv = info[2].advance_width  # shaped.advance_width
+        w_adv = info[2].advance_width
         if current_line and current_line_w + w_adv > box_w:
             lines.append(current_line)
             current_line = [info]
@@ -521,7 +596,6 @@ def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack,
     if current_line:
         lines.append(current_line)
 
-    # 3. Compute line heights and total block height
     first_style = word_infos[0][1]
     base_line_h = first_style.font_size * getattr(first_style, 'line_height', 1.2)
     total_block_h = base_line_h * len(lines)
@@ -534,8 +608,7 @@ def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack,
         line_w = sum(info[2].advance_width for info in line)
         cursor_x = base_x - line_w / 2 + anim_state.offset_x
 
-        for display, style, shaped, word, w_anim in line:
-            # Skip invisible words (typewriter: word not yet revealed)
+        for display, style, shaped, word, w_anim, word_idx in line:
             if not w_anim.visible:
                 cursor_x += shaped.advance_width
                 continue
@@ -547,12 +620,10 @@ def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack,
                 continue
 
             draw_x = cursor_x + w_anim.offset_x
-            draw_y = cursor_y + w_anim.offset_y + shaped.ascent  # baseline
+            draw_y = cursor_y + w_anim.offset_y + shaped.ascent
 
-            # Apply scale animation (e.g. Pop)
             if w_anim.scale != 1.0 and shaped.blob is not None:
                 canvas.save()
-                # Scale around word center
                 cx = draw_x + shaped.advance_width / 2
                 cy = draw_y - shaped.ascent / 2
                 canvas.translate(cx, cy)
@@ -580,16 +651,9 @@ def _paint_subtitle_word_by_word(canvas: skia.Canvas, seg, track: SubtitleTrack,
 # ── Uniform rendering ─────────────────────────────────────────────────────────
 
 def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim_state,
-                            frame_w, frame_h):
+                            frame_w, frame_h, seg_layout=None):
     """Paint subtitle text as a uniform block using HarfBuzz shaping."""
     style = seg.style
-    pos_x = getattr(seg, 'position_x', None)
-    if pos_x is None:
-        pos_x = track.position_x
-    pos_y = getattr(seg, 'position_y', None)
-    if pos_y is None:
-        pos_y = track.position_y
-    box_w = track.text_box_width * frame_w
 
     anim_type_str = getattr(seg, 'line_animation_type', None) or track.line_animation_type
     anim_type = AnimationType(anim_type_str)
@@ -602,7 +666,57 @@ def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim
     if not full_text.strip():
         return
 
-    # Wrap text into lines respecting box_w
+    effective_opacity = anim_state.opacity * getattr(style, 'text_opacity', 1.0)
+
+    # If we have pre-computed layout from frontend, use it directly
+    if seg_layout and seg_layout.get("mode") == "uniform" and seg_layout.get("lines"):
+        canvas.save()
+        rotation = getattr(style, 'rotation', 0)
+        if rotation != 0:
+            # Need to compute rotation center from layout
+            ll = seg_layout["lines"]
+            block_top = ll[0]["y"]
+            total_h = seg_layout.get("base_line_h", 57.6) * len(ll)
+            pos_x = getattr(seg, 'position_x', None)
+            if pos_x is None:
+                pos_x = track.position_x
+            center_x = pos_x * frame_w
+            center_y = block_top + total_h / 2
+            canvas.translate(center_x, center_y)
+            canvas.rotate(rotation)
+            canvas.translate(-center_x, -center_y)
+
+        for ll in seg_layout["lines"]:
+            line_text = ll["text"]
+            if not line_text.strip():
+                continue
+
+            shaped = shape_text(line_text, style.font_family, style.font_size,
+                               style.font_weight, style.font_style)
+            if shaped.blob is None:
+                continue
+
+            # Frontend uses textBaseline='top', Skia uses baseline, so add ascent
+            start_x = ll["x"] + anim_state.offset_x
+            baseline_y = ll["y"] + anim_state.offset_y + shaped.ascent
+
+            _draw_text_blob(canvas, shaped.blob, start_x, baseline_y,
+                           style, effective_opacity,
+                           ll["width"], ll.get("line_height", shaped.line_height),
+                           frame_w=frame_w, frame_h=frame_h)
+
+        canvas.restore()
+        return
+
+    # ── Fallback: compute positions on backend ──
+    pos_x = getattr(seg, 'position_x', None)
+    if pos_x is None:
+        pos_x = track.position_x
+    pos_y = getattr(seg, 'position_y', None)
+    if pos_y is None:
+        pos_y = track.position_y
+    box_w = track.text_box_width * frame_w
+
     words = full_text.split()
     lines: list[str] = []
     current_line = ""
@@ -618,7 +732,6 @@ def _paint_subtitle_uniform(canvas: skia.Canvas, seg, track: SubtitleTrack, anim
     if current_line:
         lines.append(current_line)
 
-    effective_opacity = anim_state.opacity * getattr(style, 'text_opacity', 1.0)
     line_h = style.font_size * getattr(style, 'line_height', 1.2)
     total_block_h = line_h * len(lines)
 
