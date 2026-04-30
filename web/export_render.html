@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>OWN Subtitle Export Renderer</title>
+    <!-- We only need preview.js and its styling dependencies if any (none really) -->
+    <script src="js/preview.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            overflow: hidden;
+        }
+        #subtitle-canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- The canvas will be sized to the target video resolution -->
+    <canvas id="subtitle-canvas"></canvas>
+
+    <script>
+        let preview = null;
+        let mockVideo = {
+            currentTime: 0,
+            videoWidth: 1920,
+            videoHeight: 1080,
+            getBoundingClientRect: function() {
+                return { width: this.videoWidth, height: this.videoHeight };
+            }
+        };
+
+        // This is called once by Python to set up the environment
+        window.initRenderer = function(width, height, subtitleTrackJson) {
+            mockVideo.videoWidth = width;
+            mockVideo.videoHeight = height;
+
+            const canvas = document.getElementById('subtitle-canvas');
+            canvas.width = width;
+            canvas.height = height;
+
+            preview = new SubtitlePreview(mockVideo, canvas);
+            
+            // The JSON sent from Python
+            const track = JSON.parse(subtitleTrackJson);
+            
+            // Rehydrate the SubtitleTrack methods since JSON.parse just gives a plain object
+            // We just need the segment_at method which preview.js doesn't actually call directly,
+            // preview.js expects `activeSeg` to be passed, or it finds it. Wait, preview.draw() finds it:
+            // let activeSeg = track.segments.find(s => currentTime >= s.start_time && currentTime <= s.end_time);
+            // This is perfect, preview.js handles finding the segment itself without class methods.
+
+            preview.setTrack(track);
+
+            // Do not call preview.start() because we don't want a requestAnimationFrame loop.
+            // We will render specific frames on demand.
+        };
+
+        // This is called by Python for every frame
+        // It renders the subtitle and returns the RGBA pixel array
+        window.renderFrame = function(currentTime) {
+            mockVideo.currentTime = currentTime;
+            
+            // Resize canvas to match mockVideo dimensions if needed
+            preview.resizeCanvas();
+            
+            // Draw the current frame
+            preview.draw();
+
+            // Extract the pixel data
+            const ctx = preview.canvas.getContext('2d');
+            const imgData = ctx.getImageData(0, 0, preview.canvas.width, preview.canvas.height);
+            
+            // Return raw Uint8ClampedArray data
+            // Playwright can transfer TypedArrays back to Python very efficiently
+            return imgData.data;
+        };
+
+        // Fallback for batch rendering to improve performance
+        window.renderFrameBatch = function(timestamps) {
+            const results = [];
+            for (let t of timestamps) {
+                mockVideo.currentTime = t;
+                preview.draw();
+                const ctx = preview.canvas.getContext('2d');
+                // Getting the dataURL might be faster to transfer over IPC than huge raw arrays, 
+                // but base64 decoding in Python takes time. We will return raw arrays.
+                // Wait, playwright's evaluate() handles large arrays but it might serialize to JSON.
+                // An array of arrays might be huge. Let's try returning an array of Data URLs (PNG).
+                // PNG compression in browser is fast, base64 transfer is compact.
+                results.push(preview.canvas.toDataURL('image/png'));
+            }
+            return results;
+        };
+
+    </script>
+</body>
+</html>

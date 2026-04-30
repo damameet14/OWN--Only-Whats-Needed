@@ -956,15 +956,7 @@ function initExport() {
         buttons.classList.add('hidden');
 
         try {
-            // Compute pixel-perfect layout from frontend canvas
-            let layoutData = null;
-            if (preview && subtitleTrack) {
-                const vid = document.getElementById('video-player');
-                const videoW = vid.videoWidth || 1920;
-                const videoH = vid.videoHeight || 1080;
-                layoutData = preview.computeExportLayout(subtitleTrack, videoW, videoH);
-            }
-            const { task_id } = await startExport(project.id, format, layoutData);
+            const { task_id } = await startExport(project.id, format);
 
             watchProgress(task_id,
                 (data) => {

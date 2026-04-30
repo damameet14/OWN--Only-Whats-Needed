@@ -633,27 +633,30 @@ class SubtitlePreview {
     }
 
     /**
-     * Compute exact word positions for export.
-     * Uses the SAME canvas and scaleFactor as the preview so that
-     * ctx.measureText() returns identical widths. Then scales all
-     * positions to video resolution by dividing by scaleFactor.
+     * Compute exact word positions at video resolution for export.
+     * Uses an offscreen canvas at the actual video dimensions so that
+     * ctx.measureText() produces pixel-perfect widths matching the preview.
+     * Returns an array of per-segment layout objects.
      */
     computeExportLayout(track, videoW, videoH) {
-        // Use the preview's own canvas and context — same as rendering
-        const ctx = this.ctx;
-        const w = this.canvas.width;
-        const h = this.canvas.height;
-        const scaleFactor = w / (videoW || 1920);
+        // Create offscreen canvas at video resolution
+        const offscreen = document.createElement('canvas');
+        offscreen.width = videoW;
+        offscreen.height = videoH;
+        const ctx = offscreen.getContext('2d');
         ctx.textBaseline = 'top';
 
+        // scaleFactor = 1 since we're rendering at video resolution
+        const scaleFactor = 1;
         const segmentLayouts = [];
 
         for (const seg of track.segments) {
             const segStyle = seg.style || track.global_style || {};
-            const boxW = (track.text_box_width ?? 0.8) * w;  // in canvas pixels
+            const boxW = (track.text_box_width ?? 0.8) * videoW;
             const posX = seg.position_x ?? track.position_x ?? 0.5;
             const posY = seg.position_y ?? track.position_y ?? 0.9;
 
+            // Check if this segment needs word-by-word
             const hasNonStandard = seg.words.some(w =>
                 (w.marker && w.marker !== 'standard') || w.style_override
             );
@@ -661,7 +664,7 @@ class SubtitlePreview {
             const needsWordByWord = hasNonStandard || wordAnimType !== 'none';
 
             if (needsWordByWord) {
-                // Word-by-word layout — same logic as drawSegmentWordByWord
+                // Word-by-word layout
                 const wordLayouts = [];
                 const wordInfos = seg.words.map((word, idx) => {
                     const style = this.getWordStyle(word, segStyle, track);
@@ -673,7 +676,7 @@ class SubtitlePreview {
                     return { text, style, fontSize, fontStr, width: measured.width, wordIdx: idx };
                 });
 
-                // Group into lines (canvas-pixel space)
+                // Group into lines
                 const lines = [];
                 let currentLine = [];
                 let currentLineW = 0;
@@ -689,11 +692,10 @@ class SubtitlePreview {
                 }
                 if (currentLine.length > 0) lines.push(currentLine);
 
-                // All in canvas-pixel space (same as preview)
                 const baseLineH = (segStyle.font_size || 48) * scaleFactor * (segStyle.line_height ?? 1.2);
                 const totalH = baseLineH * lines.length;
-                const baseX = posX * w;
-                const baseY = posY * h - totalH;
+                const baseX = posX * videoW;
+                const baseY = posY * videoH - totalH;
 
                 for (let li = 0; li < lines.length; li++) {
                     const line = lines[li];
@@ -702,13 +704,12 @@ class SubtitlePreview {
                     const ly = baseY + li * baseLineH;
 
                     for (const info of line) {
-                        // Convert canvas-pixel → video-pixel by dividing by scaleFactor
                         wordLayouts.push({
                             word_idx: info.wordIdx,
-                            x: curX / scaleFactor,
-                            y: ly / scaleFactor,
-                            width: info.width / scaleFactor,
-                            line_height: baseLineH / scaleFactor,
+                            x: curX,
+                            y: ly,
+                            width: info.width,
+                            line_height: baseLineH,
                         });
                         curX += info.width;
                     }
@@ -718,10 +719,10 @@ class SubtitlePreview {
                     seg_idx: track.segments.indexOf(seg),
                     mode: 'word_by_word',
                     words: wordLayouts,
-                    base_line_h: baseLineH / scaleFactor,
+                    base_line_h: (segStyle.font_size || 48) * (segStyle.line_height ?? 1.2),
                 });
             } else {
-                // Uniform layout — same logic as drawSegmentUniform
+                // Uniform layout
                 const style = segStyle;
                 const fontSize = Math.round((style.font_size || 48) * scaleFactor);
                 const fontStr = this.buildFontStr(style, fontSize);
@@ -734,8 +735,8 @@ class SubtitlePreview {
                 const lines = this._wrapText(ctx, fullText, boxW);
                 const lineH = fontSize * (style.line_height ?? 1.2);
                 const totalH = lineH * lines.length;
-                const baseX = posX * w;
-                const baseY = posY * h - totalH;
+                const baseX = posX * videoW;
+                const baseY = posY * videoH - totalH;
 
                 const lineLayouts = [];
                 for (let li = 0; li < lines.length; li++) {
@@ -744,13 +745,12 @@ class SubtitlePreview {
                     const lineW = metrics.width;
                     const lx = baseX - lineW / 2;
                     const ly = baseY + li * lineH;
-                    // Convert canvas-pixel → video-pixel
                     lineLayouts.push({
                         text: lineText,
-                        x: lx / scaleFactor,
-                        y: ly / scaleFactor,
-                        width: lineW / scaleFactor,
-                        line_height: lineH / scaleFactor,
+                        x: lx,
+                        y: ly,
+                        width: lineW,
+                        line_height: lineH,
                     });
                 }
 
@@ -758,7 +758,7 @@ class SubtitlePreview {
                     seg_idx: track.segments.indexOf(seg),
                     mode: 'uniform',
                     lines: lineLayouts,
-                    base_line_h: lineH / scaleFactor,
+                    base_line_h: lineH,
                 });
             }
         }

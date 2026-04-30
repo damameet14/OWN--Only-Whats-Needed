@@ -166,8 +166,21 @@ async def export_video(
     loop = asyncio.get_running_loop()
     q = asyncio.Queue()
 
-    def _render_all_frames():
-        """Decode → render → encode pipeline in a thread."""
+    def _render_all_frames_async_wrapper():
+        # This is a synchronous wrapper that will use asyncio.run to run the playwright logic
+        # Because we're in a separate thread spawned by asyncio.to_thread, we need a new event loop
+        # Wait, the current approach is: thread_task = asyncio.create_task(asyncio.to_thread(_render_all_frames))
+        # Since Playwright needs an async loop, we can just spawn an async task in the main loop!
+        pass
+
+    async def _render_all_frames_async():
+        """Decode → render via Playwright → encode pipeline."""
+        import json
+        import base64
+        import pathlib
+        from io import BytesIO
+        from playwright.async_api import async_playwright
+
         decode_cmd = [
             get_ffmpeg_path(), "-y",
             "-i", source_video_path,
@@ -208,40 +221,66 @@ async def export_video(
 
         frame_size = w * h * 3
         frame_number = 0
-
-        # Build layout lookup: seg_idx → layout
-        _layout_map = {}
-        if layout_data:
-            for entry in layout_data:
-                _layout_map[entry["seg_idx"]] = entry
-
         has_error = False
+
         try:
-            while True:
-                if encoder.poll() is not None:
-                    raise RuntimeError("FFmpeg encoder crashed or exited early.")
-
-                raw = decoder.stdout.read(frame_size)
-                if len(raw) < frame_size:
-                    break
-
-                current_time = frame_number / fps
-
-                # Convert raw bytes → PIL Image
-                img = Image.frombytes("RGB", (w, h), raw)
-
-                if subtitle_track.video_rotation != 0:
-                    img = img.rotate(-subtitle_track.video_rotation, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=(0,0,0))
-
-                # Render subtitles
-                _render_subtitle_on_frame(img, current_time, subtitle_track, w, h, _layout_map)
-
-                # Write rendered frame
-                encoder.stdin.write(img.tobytes())
-
-                frame_number += 1
-                if frame_number % 10 == 0:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                
+                html_path = pathlib.Path("web/export_render.html").absolute().as_uri()
+                await page.goto(html_path)
+                
+                track_json = subtitle_track.to_dict()
+                await page.evaluate(f"initRenderer({w}, {h}, {json.dumps(json.dumps(track_json))})")
+                
+                batch_size = 10
+                frames_batch = []
+                timestamps = []
+                
+                while True:
+                    if encoder.poll() is not None:
+                        raise RuntimeError("FFmpeg encoder crashed or exited early.")
+                    
+                    # Fill batch
+                    while len(frames_batch) < batch_size:
+                        raw = await asyncio.to_thread(decoder.stdout.read, frame_size)
+                        if not raw or len(raw) < frame_size:
+                            break
+                        frames_batch.append(raw)
+                        timestamps.append(frame_number / fps)
+                        frame_number += 1
+                        
+                    if not frames_batch:
+                        break
+                        
+                    # Render batch in Playwright
+                    base64_pngs = await page.evaluate(f"renderFrameBatch({timestamps})")
+                    
+                    for i, raw in enumerate(frames_batch):
+                        img = Image.frombytes("RGB", (w, h), raw)
+                        
+                        if subtitle_track.video_rotation != 0:
+                            img = img.rotate(-subtitle_track.video_rotation, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=(0,0,0))
+                            
+                        # Composite overlay
+                        b64_data = base64_pngs[i]
+                        if b64_data.startswith("data:image/png;base64,"):
+                            b64_data = b64_data.split(",", 1)[1]
+                            
+                        png_bytes = base64.b64decode(b64_data)
+                        overlay = Image.open(BytesIO(png_bytes)).convert("RGBA")
+                        
+                        img.paste(overlay, (0, 0), overlay)
+                        
+                        # Write to encoder
+                        await asyncio.to_thread(encoder.stdin.write, img.tobytes())
+                        
+                    # Emit progress
                     loop.call_soon_threadsafe(q.put_nowait, frame_number)
+                    
+                    frames_batch.clear()
+                    timestamps.clear()
 
         except Exception as e:
             has_error = True
@@ -254,7 +293,6 @@ async def export_video(
                 decoder.stdout.close()
             decoder.wait()
 
-            # Must close stdin first so FFmpeg knows to finish the encoding!
             if encoder.stdin:
                 encoder.stdin.close()
 
@@ -279,8 +317,8 @@ async def export_video(
             if not has_error:
                 loop.call_soon_threadsafe(q.put_nowait, "DONE")
 
-    # Run in background and listen to queue
-    thread_task = asyncio.create_task(asyncio.to_thread(_render_all_frames))
+    # Run the async loop instead of threading
+    thread_task = asyncio.create_task(_render_all_frames_async())
 
     while True:
         msg = await q.get()
