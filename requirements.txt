@@ -20,5 +20,8 @@ PySide6>=6.7.0
 pystray>=0.19.5
 customtkinter>=5.2.0
 
+# ── Transliteration ────────────────────────
+indic-transliteration>=2.3.0
+
 # ── Misc ───────────────────────────────────
 requests>=2.31.0

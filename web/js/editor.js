@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initExport();
     initSrtDownload();
     initTranscription();
+    initTransliteration();
     loadPresets();
 });
 
@@ -44,6 +45,7 @@ function ensureSubtitleTrackMethods() {
     if (!subtitleTrack.highlight_style) subtitleTrack.highlight_style = null;
     if (!subtitleTrack.spotlight_style) subtitleTrack.spotlight_style = null;
     if (subtitleTrack.sentence_mode === undefined) subtitleTrack.sentence_mode = false;
+    if (subtitleTrack.is_transliterated === undefined) subtitleTrack.is_transliterated = false;
 }
 
 async function loadProject(id) {
@@ -143,6 +145,7 @@ async function loadProject(id) {
             populateSegments(subtitleTrack.segments);
             populateFullText(subtitleTrack.segments);
             applyTrackToControls(subtitleTrack);
+            updateTransliterateUI();
         }
 
         // Subtitle Canvas Dragging and Interactions
@@ -2594,3 +2597,304 @@ function attachWordSelectionListeners() {
         showContextMenu(e.clientX, e.clientY, wordEl);
     });
 }
+
+
+// ── Transliteration ──────────────────────────────────────────────────────────
+
+/**
+ * Flatten all words from all segments into a single ordered list.
+ * Each entry: { segIdx, wordIdx, wordObj }
+ */
+function flattenAllWords() {
+    if (!subtitleTrack || !subtitleTrack.segments) return [];
+    const flat = [];
+    subtitleTrack.segments.forEach((seg, si) => {
+        (seg.words || []).forEach((w, wi) => {
+            flat.push({ segIdx: si, wordIdx: wi, wordObj: w });
+        });
+    });
+    return flat;
+}
+
+/**
+ * Update the switch-back button visibility based on transliteration state.
+ */
+function updateTransliterateUI() {
+    const btnSwitchBack = document.getElementById('btn-switch-back');
+    const btnTransliterate = document.getElementById('btn-transliterate');
+    if (!subtitleTrack) return;
+
+    const hasAnyTransliterated = subtitleTrack.segments?.some(seg =>
+        seg.words?.some(w => w.word_native)
+    );
+
+    if (btnSwitchBack) btnSwitchBack.classList.toggle('hidden', !hasAnyTransliterated);
+    // Keep transliterate button always visible (user might want to transliterate more words)
+}
+
+/**
+ * Initialize the transliteration modal and button wiring.
+ */
+function initTransliteration() {
+    const modal = document.getElementById('transliterate-modal');
+    const btnOpen = document.getElementById('btn-transliterate');
+    const btnSwitchBack = document.getElementById('btn-switch-back');
+    const btnAll = document.getElementById('btn-transliterate-all');
+    const btnSelect = document.getElementById('btn-transliterate-select');
+    const btnBack = document.getElementById('btn-transliterate-back');
+    const btnSelectAll = document.getElementById('btn-word-select-all');
+    const btnDeselectAll = document.getElementById('btn-word-deselect-all');
+    const btnTransliterateSelected = document.getElementById('btn-transliterate-selected');
+    const stepChoose = document.getElementById('transliterate-step-choose');
+    const stepSelect = document.getElementById('transliterate-step-select');
+    const progressEl = document.getElementById('transliterate-progress');
+
+    if (!modal || !btnOpen) return;
+
+    // Track selected chip indices (flat word indices)
+    let selectedChipIndices = new Set();
+
+    // Open modal
+    btnOpen.addEventListener('click', () => {
+        if (!subtitleTrack || !subtitleTrack.segments?.length) {
+            showToast('No transcript to transliterate. Transcribe the video first.', 'error');
+            return;
+        }
+        // Reset to step 1
+        stepChoose.classList.remove('hidden');
+        stepSelect.classList.add('hidden');
+        progressEl.classList.add('hidden');
+        selectedChipIndices.clear();
+        showModal(modal);
+    });
+
+    // "Transliterate All"
+    btnAll.addEventListener('click', async () => {
+        stepChoose.classList.add('hidden');
+        progressEl.classList.remove('hidden');
+
+        try {
+            const flat = flattenAllWords();
+            const words = flat.map(f => ({ word: f.wordObj.word }));
+            const { transliterated } = await transliterateWords(words, 'all');
+
+            // Apply to data model
+            for (const item of transliterated) {
+                const entry = flat[item.index];
+                if (!entry) continue;
+                const w = entry.wordObj;
+                // Only set word_native if this word isn't already transliterated
+                if (!w.word_native) {
+                    w.word_native = item.original;
+                }
+                w.word = item.roman;
+            }
+
+            subtitleTrack.is_transliterated = true;
+            refreshAfterTransliteration();
+            hideModal(modal);
+            showToast('All words transliterated!');
+        } catch (err) {
+            showToast(`Transliteration error: ${err.message}`, 'error');
+        } finally {
+            progressEl.classList.add('hidden');
+            stepChoose.classList.remove('hidden');
+        }
+    });
+
+    // "Select Words" — show word chips
+    btnSelect.addEventListener('click', () => {
+        stepChoose.classList.add('hidden');
+        stepSelect.classList.remove('hidden');
+        selectedChipIndices.clear();
+        populateWordChips();
+    });
+
+    // Back button
+    btnBack.addEventListener('click', () => {
+        stepSelect.classList.add('hidden');
+        stepChoose.classList.remove('hidden');
+    });
+
+    // Select All / Deselect All
+    btnSelectAll.addEventListener('click', () => {
+        const flat = flattenAllWords();
+        flat.forEach((_, i) => selectedChipIndices.add(i));
+        updateChipSelection();
+    });
+    btnDeselectAll.addEventListener('click', () => {
+        selectedChipIndices.clear();
+        updateChipSelection();
+    });
+
+    // Transliterate Selected
+    btnTransliterateSelected.addEventListener('click', async () => {
+        if (selectedChipIndices.size === 0) return;
+
+        stepSelect.classList.add('hidden');
+        progressEl.classList.remove('hidden');
+
+        try {
+            const flat = flattenAllWords();
+            const words = flat.map(f => ({ word: f.wordObj.word }));
+            const indices = Array.from(selectedChipIndices);
+            const { transliterated } = await transliterateWords(words, indices);
+
+            for (const item of transliterated) {
+                const entry = flat[item.index];
+                if (!entry) continue;
+                const w = entry.wordObj;
+                if (!w.word_native) {
+                    w.word_native = item.original;
+                }
+                w.word = item.roman;
+            }
+
+            subtitleTrack.is_transliterated = true;
+            refreshAfterTransliteration();
+            hideModal(modal);
+            showToast(`${transliterated.length} words transliterated!`);
+        } catch (err) {
+            showToast(`Transliteration error: ${err.message}`, 'error');
+        } finally {
+            progressEl.classList.add('hidden');
+            stepSelect.classList.remove('hidden');
+        }
+    });
+
+    // Switch Back
+    btnSwitchBack?.addEventListener('click', () => {
+        if (!subtitleTrack) return;
+        let reverted = 0;
+        for (const seg of subtitleTrack.segments) {
+            for (const w of (seg.words || [])) {
+                if (w.word_native) {
+                    w.word = w.word_native;
+                    w.word_native = null;
+                    reverted++;
+                }
+            }
+        }
+        subtitleTrack.is_transliterated = false;
+        refreshAfterTransliteration();
+        showToast(`${reverted} words reverted to native script.`);
+    });
+
+    // ── Word chip population & interaction ────────────────────────────────
+
+    let isDragging = false;
+    let dragStartIndex = -1;
+
+    function populateWordChips() {
+        const container = document.getElementById('word-selector-chips');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const flat = flattenAllWords();
+        let lastSegIdx = -1;
+
+        flat.forEach((entry, flatIdx) => {
+            // Add separator between segments
+            if (entry.segIdx !== lastSegIdx && lastSegIdx !== -1) {
+                const sep = document.createElement('div');
+                sep.className = 'word-chip-separator';
+                container.appendChild(sep);
+            }
+            lastSegIdx = entry.segIdx;
+
+            const chip = document.createElement('span');
+            chip.className = 'word-chip';
+            chip.textContent = entry.wordObj.word;
+            chip.dataset.flatIdx = flatIdx;
+
+            // Mark already-transliterated words
+            if (entry.wordObj.word_native) {
+                chip.classList.add('transliterated');
+                chip.title = `Native: ${entry.wordObj.word_native}`;
+            }
+
+            // Click handler
+            chip.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                isDragging = true;
+                dragStartIndex = flatIdx;
+
+                if (e.ctrlKey || e.metaKey) {
+                    // Toggle this chip
+                    if (selectedChipIndices.has(flatIdx)) {
+                        selectedChipIndices.delete(flatIdx);
+                    } else {
+                        selectedChipIndices.add(flatIdx);
+                    }
+                } else {
+                    // Single click — clear and select just this one
+                    selectedChipIndices.clear();
+                    selectedChipIndices.add(flatIdx);
+                }
+                updateChipSelection();
+            });
+
+            // Drag over
+            chip.addEventListener('mouseenter', (e) => {
+                if (!isDragging || dragStartIndex < 0) return;
+                // Select range from dragStart to current
+                const minIdx = Math.min(dragStartIndex, flatIdx);
+                const maxIdx = Math.max(dragStartIndex, flatIdx);
+                // If Ctrl was not held at drag start, clear first
+                if (!e.ctrlKey && !e.metaKey) {
+                    selectedChipIndices.clear();
+                }
+                for (let i = minIdx; i <= maxIdx; i++) {
+                    selectedChipIndices.add(i);
+                }
+                updateChipSelection();
+            });
+
+            container.appendChild(chip);
+        });
+
+        // Mouse up anywhere in container ends drag
+        container.addEventListener('mouseup', () => {
+            isDragging = false;
+            dragStartIndex = -1;
+        });
+
+        // Also handle mouse up on document (in case mouse leaves container)
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            dragStartIndex = -1;
+        }, { once: false });
+
+        updateChipSelection();
+    }
+
+    function updateChipSelection() {
+        const container = document.getElementById('word-selector-chips');
+        if (!container) return;
+        container.querySelectorAll('.word-chip').forEach(chip => {
+            const idx = parseInt(chip.dataset.flatIdx);
+            chip.classList.toggle('selected', selectedChipIndices.has(idx));
+        });
+
+        // Update count
+        const countEl = document.getElementById('word-select-count');
+        if (countEl) countEl.textContent = selectedChipIndices.size;
+
+        // Enable/disable button
+        const btn = document.getElementById('btn-transliterate-selected');
+        if (btn) btn.disabled = selectedChipIndices.size === 0;
+    }
+}
+
+/**
+ * Refresh all views after transliteration or switch-back.
+ */
+function refreshAfterTransliteration() {
+    populateFullText(subtitleTrack.segments);
+    populateSegments(subtitleTrack.segments);
+    preview?.setTrack(subtitleTrack);
+    timeline?.setData(subtitleTrack, project.video_duration, project.id);
+    updateTransliterateUI();
+    autoSave();
+}
+

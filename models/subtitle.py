@@ -130,6 +130,7 @@ class StyledWord:
     position_preset: Optional[str] = None            # None = use segment position; e.g. 'top-center'
     word_animation_type: Optional[str] = None        # None = use segment/track word animation
     word_animation_duration: Optional[float] = None  # None = use segment/track word duration
+    word_native: Optional[str] = None                # Original native-script text (set when transliterated)
 
     @classmethod
     def from_word_timing(cls, wt: WordTiming) -> StyledWord:
@@ -156,6 +157,8 @@ class StyledWord:
             d["word_animation_type"] = self.word_animation_type
         if self.word_animation_duration is not None:
             d["word_animation_duration"] = self.word_animation_duration
+        if self.word_native is not None:
+            d["word_native"] = self.word_native
         return d
 
     @classmethod
@@ -181,6 +184,7 @@ class StyledWord:
             # Backwards compat: old animation_type → word_animation_type
             word_animation_type=d.get("word_animation_type", d.get("animation_type")),
             word_animation_duration=d.get("word_animation_duration", d.get("animation_duration")),
+            word_native=d.get("word_native"),
         )
 
 
@@ -285,6 +289,7 @@ class SubtitleTrack:
     word_animation_duration: float = 0.3  # seconds
     video_rotation: int = 0  # angle in degrees
     sentence_mode: bool = False  # if True, segments are defined by \n in full text
+    is_transliterated: bool = False  # True when any words have been transliterated
 
     def segment_at(self, time_sec: float) -> Optional[SubtitleSegment]:
         """Return the segment visible at the given timestamp."""
@@ -333,6 +338,7 @@ class SubtitleTrack:
             "word_animation_duration": self.word_animation_duration,
             "video_rotation": self.video_rotation,
             "sentence_mode": self.sentence_mode,
+            "is_transliterated": self.is_transliterated,
         }
 
     @classmethod
@@ -368,6 +374,7 @@ class SubtitleTrack:
             word_animation_duration=d.get("word_animation_duration", 0.3),
             video_rotation=d.get("video_rotation", 0),
             sentence_mode=d.get("sentence_mode", False),
+            is_transliterated=d.get("is_transliterated", False),
         )
 
     def to_json(self) -> str:

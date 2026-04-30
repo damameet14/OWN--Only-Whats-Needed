@@ -62,8 +62,16 @@
             <div class="flex-1 overflow-y-auto p-4 space-y-2" id="segments-panel">
                 <p class="text-sm text-slate-400">No transcript yet. Transcribe the video first.</p>
             </div>
-            <div class="flex-1 overflow-y-auto p-4 hidden" id="fulltext-panel">
-                <textarea class="w-full h-full bg-transparent text-sm text-slate-200 resize-none focus:outline-none" id="fulltext-area" placeholder="Full transcript text..."></textarea>
+            <div class="flex-1 overflow-y-auto p-4 hidden flex flex-col" id="fulltext-panel">
+                <textarea class="w-full flex-1 bg-transparent text-sm text-slate-200 resize-none focus:outline-none" id="fulltext-area" placeholder="Full transcript text..."></textarea>
+                <div class="flex-shrink-0 pt-3 space-y-2" id="transliterate-actions">
+                    <button class="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white hover:bg-white/10 transition-colors" id="btn-transliterate">
+                        <span class="material-symbols-outlined" style="font-size:16px">translate</span> Transliterate
+                    </button>
+                    <button class="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-amber-600/20 border border-amber-500/40 rounded-lg text-amber-200 hover:bg-amber-600/30 transition-colors hidden" id="btn-switch-back">
+                        <span class="material-symbols-outlined" style="font-size:16px">undo</span> Switch Back
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -817,6 +825,74 @@
     <button class="hidden" id="ctx-unmark"></button>
     <button class="hidden" id="ctx-create-group"></button>
     <button class="hidden" id="ctx-remove-group"></button>
+</div>
+
+<!-- Transliteration Modal -->
+<div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" id="transliterate-modal">
+    <div class="bg-bg-surface border border-white/10 rounded-2xl p-8 w-full max-w-lg modal-content relative flex flex-col" style="max-height: 80vh">
+        <!-- Close button -->
+        <button id="transliterate-close" class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors" onclick="document.getElementById('transliterate-modal').classList.remove('active')">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+
+        <h3 class="text-xl font-bold text-white mb-1">Transliterate</h3>
+        <p class="text-xs text-slate-400 mb-4">Convert native script to Roman (ITRANS)</p>
+
+        <!-- Warning -->
+        <div class="flex items-start gap-3 bg-amber-900/20 border border-amber-500/30 rounded-lg p-3 mb-5">
+            <span class="material-symbols-outlined text-amber-400 mt-0.5" style="font-size:20px">warning</span>
+            <p class="text-sm text-amber-200 leading-relaxed">Make sure you have corrected all the words in the native script before transliterating.</p>
+        </div>
+
+        <!-- Step 1: Choose mode (visible initially) -->
+        <div id="transliterate-step-choose" class="space-y-3">
+            <button class="w-full flex items-center gap-3 px-4 py-3 text-left bg-white/5 border border-white/10 rounded-lg text-white hover:bg-white/10 hover:border-primary/30 transition-all group" id="btn-transliterate-all">
+                <span class="material-symbols-outlined text-primary" style="font-size:22px">select_all</span>
+                <div>
+                    <p class="text-sm font-semibold">Transliterate All</p>
+                    <p class="text-xs text-slate-400">Convert every word to Roman script</p>
+                </div>
+            </button>
+            <button class="w-full flex items-center gap-3 px-4 py-3 text-left bg-white/5 border border-white/10 rounded-lg text-white hover:bg-white/10 hover:border-primary/30 transition-all group" id="btn-transliterate-select">
+                <span class="material-symbols-outlined text-primary" style="font-size:22px">touch_app</span>
+                <div>
+                    <p class="text-sm font-semibold">Select Words</p>
+                    <p class="text-xs text-slate-400">Choose specific words to transliterate</p>
+                </div>
+            </button>
+        </div>
+
+        <!-- Step 2: Word selector (hidden initially) -->
+        <div id="transliterate-step-select" class="hidden flex flex-col flex-1 min-h-0">
+            <div class="flex items-center justify-between mb-3">
+                <button class="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors" id="btn-transliterate-back">
+                    <span class="material-symbols-outlined" style="font-size:14px">arrow_back</span> Back
+                </button>
+                <div class="flex gap-2">
+                    <button class="px-2 py-1 text-xs bg-white/5 border border-white/10 rounded text-slate-300 hover:bg-white/10 transition-colors" id="btn-word-select-all">Select All</button>
+                    <button class="px-2 py-1 text-xs bg-white/5 border border-white/10 rounded text-slate-300 hover:bg-white/10 transition-colors" id="btn-word-deselect-all">Deselect All</button>
+                </div>
+            </div>
+            <p class="text-[10px] text-slate-500 mb-2">Click words to select. Ctrl+Click for multi-select. Click & drag to select a range.</p>
+            <div class="flex-1 overflow-y-auto bg-white/5 rounded-lg border border-white/10 p-3 min-h-[150px] max-h-[300px]" id="word-selector-container">
+                <div class="flex flex-wrap gap-1.5" id="word-selector-chips">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+            <div class="flex items-center justify-between mt-3">
+                <p class="text-xs text-slate-400"><span id="word-select-count">0</span> words selected</p>
+                <button class="px-4 py-2 text-sm bg-primary text-bg-dark rounded-lg font-bold hover:bg-primary-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed" id="btn-transliterate-selected" disabled>Transliterate Selected</button>
+            </div>
+        </div>
+
+        <!-- Progress -->
+        <div id="transliterate-progress" class="hidden mt-4">
+            <div class="flex items-center gap-3">
+                <div class="spinner"></div>
+                <p class="text-sm text-white">Transliterating...</p>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="/static/js/api.js?v=5"></script>

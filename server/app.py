@@ -354,6 +354,27 @@ async def _run_transcription(task_id: str, project: dict, language: str, model_n
     logger.info(f"[_run_transcription] END")
 
 
+# ── Transliteration ──────────────────────────────────────────────────────────
+
+@app.post("/api/transliterate")
+async def transliterate_endpoint(body: dict = Body(...)):
+    """Transliterate Indian-script words to Roman (ITRANS).
+
+    Body: { "words": [{"word": "..."}, ...], "indices": [0,1,...] | "all" }
+    Returns: { "transliterated": [{"index": 0, "original": "...", "roman": "..."}, ...] }
+    """
+    from core.transliterator import transliterate_words
+
+    words = body.get("words", [])
+    indices = body.get("indices", "all")
+
+    if not words:
+        raise HTTPException(400, "No words provided")
+
+    results = transliterate_words(words, indices)
+    return {"transliterated": results}
+
+
 # ── Export ────────────────────────────────────────────────────────────────────
 
 @app.post("/api/projects/{project_id}/export")
