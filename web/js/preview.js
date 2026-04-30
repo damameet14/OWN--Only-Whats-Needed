@@ -222,7 +222,7 @@ class SubtitlePreview {
             if (this._dragMode) {
                 const seg = getActiveSeg();
                 if (!seg) return;
-                const target = (seg && !seg.apply_for_all) ? seg : this.subtitleTrack;
+                const target = (seg && seg.apply_for_all === false) ? seg : this.subtitleTrack;
                 
                 const w = cvs.width;
                 const h = cvs.height;
@@ -466,6 +466,15 @@ class SubtitlePreview {
         const baseX = posX * w;
         const baseY = posY * h - totalH + (animState.offsetY ?? 0);
 
+        // Apply subtitle rotation (matching drawSegmentUniform)
+        const rotation = (segStyle.rotation || 0) * Math.PI / 180;
+        if (rotation !== 0) {
+            ctx.save();
+            ctx.translate(baseX, baseY + totalH / 2);
+            ctx.rotate(rotation);
+            ctx.translate(-baseX, -(baseY + totalH / 2));
+        }
+
         // 4. Draw line by line, word by word
         for (let li = 0; li < lines.length; li++) {
             const line = lines[li];
@@ -539,6 +548,8 @@ class SubtitlePreview {
         }
 
         ctx.globalAlpha = 1;
+
+        if (rotation !== 0) ctx.restore();
 
         this._lastBBox = {
             lx: baseX - tightW / 2,
