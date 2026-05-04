@@ -371,6 +371,7 @@ async def transliterate_endpoint(body: dict = Body(...)):
 
     words = body.get("words", [])
     indices = body.get("indices", "all")
+    language = body.get("language", "hi")
 
     if not words:
         raise HTTPException(400, "No words provided")
@@ -386,7 +387,7 @@ async def transliterate_endpoint(body: dict = Body(...)):
 
     if llm_path:
         # Use LLM for transliteration
-        results = transliterate_indic_to_roman_llm(llm_path, target_words)
+        results = transliterate_indic_to_roman_llm(llm_path, target_words, language=language)
     else:
         # Fallback to indic-transliteration
         results = transliterate_words(words, indices)
@@ -800,6 +801,77 @@ def _generate_thumbnail(video_path: str, thumb_path: str):
         stderr=subprocess.PIPE,
         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
+
+
+# ── Font API ──────────────────────────────────────────────────────────────────
+
+FONTS_DIR = os.path.join(PROJECT_ROOT, "fonts")
+ALLOWED_FONT_EXTENSIONS = {".ttf", ".otf", ".woff2"}
+
+
+@app.get("/api/fonts")
+async def list_fonts():
+    """List custom font files in the fonts directory."""
+    if not os.path.isdir(FONTS_DIR):
+        return []
+    fonts = []
+    for f in sorted(os.listdir(FONTS_DIR)):
+        ext = os.path.splitext(f)[1].lower()
+        if ext in ALLOWED_FONT_EXTENSIONS:
+            name = os.path.splitext(f)[0]
+            fonts.append({"filename": f, "name": name, "url": f"/api/fonts/file/{f}"})
+    return fonts
+
+
+@app.post("/api/fonts")
+async def upload_font(file: UploadFile = File(...)):
+    """Upload a custom font file (.ttf, .otf, .woff2)."""
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_FONT_EXTENSIONS:
+        raise HTTPException(400, f"Unsupported font format: {ext}. Use .ttf, .otf, or .woff2")
+
+    os.makedirs(FONTS_DIR, exist_ok=True)
+    safe_name = file.filename.replace(" ", "_")
+    font_path = os.path.join(FONTS_DIR, safe_name)
+
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:  # 20 MB limit
+        raise HTTPException(413, "Font file too large (max 20 MB)")
+
+    with open(font_path, "wb") as f:
+        f.write(content)
+
+    name = os.path.splitext(safe_name)[0]
+    return {"filename": safe_name, "name": name, "url": f"/api/fonts/file/{safe_name}"}
+
+
+@app.get("/api/fonts/file/{filename}")
+async def serve_font(filename: str):
+    """Serve a font file from the fonts directory."""
+    font_path = os.path.join(FONTS_DIR, filename)
+    if not os.path.isfile(font_path):
+        raise HTTPException(404, "Font not found")
+    # Determine content type
+    ext = os.path.splitext(filename)[1].lower()
+    content_types = {
+        ".ttf": "font/ttf",
+        ".otf": "font/otf",
+        ".woff2": "font/woff2",
+    }
+    return FileResponse(font_path, media_type=content_types.get(ext, "application/octet-stream"))
+
+
+@app.delete("/api/fonts/{filename}")
+async def delete_font(filename: str):
+    """Delete a custom font file."""
+    font_path = os.path.join(FONTS_DIR, filename)
+    if not os.path.isfile(font_path):
+        raise HTTPException(404, "Font not found")
+    try:
+        os.remove(font_path)
+    except OSError as e:
+        raise HTTPException(500, f"Failed to delete font: {e}")
+    return {"deleted": True}
 
 
 # ── Mount static files (after all routes) ─────────────────────────────────────

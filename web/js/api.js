@@ -204,12 +204,13 @@ async function getPresets() {
  * Transliterate words from Indian script to Roman (ITRANS).
  * @param {Array} words - Array of {word: "..."} objects
  * @param {Array|string} indices - Array of indices to transliterate, or "all"
+ * @param {string} language - Language code (e.g. 'hi', 'bn', 'ta')
  * @returns {Promise<{transliterated: Array}>}
  */
-async function transliterateWords(words, indices = 'all') {
+async function transliterateWords(words, indices = 'all', language = 'hi') {
     return apiRequest('/api/transliterate', {
         method: 'POST',
-        body: JSON.stringify({ words, indices }),
+        body: JSON.stringify({ words, indices, language }),
     });
 }
 

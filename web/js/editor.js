@@ -847,26 +847,31 @@ function initTabSwitching() {
 // ── Presets / Templates ──────────────────────────────────────────────────────
 
 async function loadPresets() {
-    const templatePanels = [
-        document.getElementById('presets-templates-panel')
-    ].filter(Boolean);
+    const builtinPanel = document.getElementById('presets-templates-panel');
+    const userPanel = document.getElementById('presets-panel');
 
-    if (templatePanels.length === 0) {
-        console.warn('[loadPresets] No template panels found');
+    if (!builtinPanel && !userPanel) {
+        console.warn('[loadPresets] No preset panels found');
         return;
     }
 
     try {
         const presets = await getPresets();
-        if (!presets.length) {
-            templatePanels.forEach(p => { p.innerHTML = '<p class="text-sm text-slate-400">No presets available.</p>'; });
-            return;
-        }
 
-        const buildHtml = (preset, idx) => {
+        // Split into built-in and user presets
+        const builtinPresets = presets.filter(p => p.is_builtin === true);
+        const userPresets = presets.filter(p => p.is_builtin !== true);
+
+        const buildPresetCard = (preset, idx, showDelete = false) => {
             const ss = preset.standard_style || preset.style || {};
+            const deleteBtn = showDelete
+                ? `<button class="preset-delete-btn absolute top-2 right-2 text-slate-500 hover:text-red-400 transition-colors" data-preset-name="${escapeHtml(preset.name)}" title="Delete preset">
+                    <span class="material-symbols-outlined" style="font-size:16px">delete</span>
+                   </button>`
+                : '';
             return `
-            <div class="preset-card p-3 rounded-lg border border-white/10 bg-white/5 cursor-pointer hover:border-primary/30 transition-all" data-idx="${idx}">
+            <div class="preset-card relative p-3 rounded-lg border border-white/10 bg-white/5 cursor-pointer hover:border-primary/30 transition-all" data-idx="${idx}">
+                ${deleteBtn}
                 <div class="text-sm font-bold text-white mb-1">${escapeHtml(preset.name)}</div>
                 <div class="text-xs text-slate-400 mb-2">${escapeHtml(preset.description || '')}</div>
                 <div class="text-base font-bold" style="color: ${ss.text_color || '#fff'}; text-shadow: 1px 1px 2px ${ss.outline_color || '#000'};">
@@ -875,11 +880,13 @@ async function loadPresets() {
             </div>`;
         };
 
-        templatePanels.forEach(panel => {
-            panel.innerHTML = presets.map(buildHtml).join('');
+        const attachClickHandlers = (panel, presetList) => {
             panel.querySelectorAll('.preset-card').forEach(card => {
-                card.addEventListener('click', () => {
-                    const preset = presets[parseInt(card.dataset.idx)];
+                card.addEventListener('click', (e) => {
+                    // Don't apply preset if clicking delete button
+                    if (e.target.closest('.preset-delete-btn')) return;
+
+                    const preset = presetList[parseInt(card.dataset.idx)];
                     if (!preset || !subtitleTrack) return;
 
                     const ss = preset.standard_style || preset.style || {};
@@ -902,11 +909,48 @@ async function loadPresets() {
                     showToast(`Applied "${preset.name}"`);
                 });
             });
-        });
+        };
 
-        // Save-my-preset button
+        // Render built-in presets
+        if (builtinPanel) {
+            if (builtinPresets.length) {
+                builtinPanel.innerHTML = builtinPresets.map((p, i) => buildPresetCard(p, i, false)).join('');
+                attachClickHandlers(builtinPanel, builtinPresets);
+            } else {
+                builtinPanel.innerHTML = '<p class="text-sm text-slate-400">No built-in presets available.</p>';
+            }
+        }
+
+        // Render user presets
+        if (userPanel) {
+            if (userPresets.length) {
+                userPanel.innerHTML = userPresets.map((p, i) => buildPresetCard(p, i, true)).join('');
+                attachClickHandlers(userPanel, userPresets);
+
+                // Attach delete handlers
+                userPanel.querySelectorAll('.preset-delete-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const name = btn.dataset.presetName;
+                        if (!confirm(`Delete preset "${name}"?`)) return;
+                        try {
+                            await fetch(`/api/presets/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                            showToast(`Deleted "${name}"`);
+                            loadPresets();
+                        } catch (err) {
+                            showToast('Failed to delete preset', 'error');
+                        }
+                    });
+                });
+            } else {
+                userPanel.innerHTML = '<p class="text-sm text-slate-400">No saved presets yet. Use the button below to save your current style.</p>';
+            }
+        }
+
+        // Save-my-preset button (only attach once)
         const saveBtn = document.getElementById('btn-save-preset');
-        if (saveBtn) {
+        if (saveBtn && !saveBtn._presetBound) {
+            saveBtn._presetBound = true;
             saveBtn.addEventListener('click', async () => {
                 if (!subtitleTrack) return;
                 const name = prompt('Enter preset name:');
@@ -931,9 +975,98 @@ async function loadPresets() {
         }
     } catch (err) {
         console.error('Failed to load presets:', err);
-        templatePanels.forEach(p => { p.innerHTML = '<p class="text-sm text-red-400">Error loading presets.</p>'; });
+        if (builtinPanel) builtinPanel.innerHTML = '<p class="text-sm text-red-400">Error loading presets.</p>';
+        if (userPanel) userPanel.innerHTML = '<p class="text-sm text-red-400">Error loading presets.</p>';
     }
 }
+
+
+// ── Custom Font Upload ───────────────────────────────────────────────────────
+
+/** Load custom fonts from the server and inject them into font selectors + CSS. */
+async function loadCustomFonts() {
+    try {
+        const resp = await fetch('/api/fonts');
+        if (!resp.ok) return;
+        const fonts = await resp.json();
+
+        for (const font of fonts) {
+            injectCustomFont(font.name, font.url);
+        }
+    } catch (err) {
+        console.warn('Failed to load custom fonts:', err);
+    }
+}
+
+/** Inject a single custom font into the page: @font-face CSS + add to selectors. */
+function injectCustomFont(name, url) {
+    // Inject @font-face if not already present
+    const styleId = `custom-font-${name.replace(/\s+/g, '-')}`;
+    if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `@font-face { font-family: '${name}'; src: url('${url}'); font-display: swap; }`;
+        document.head.appendChild(style);
+    }
+
+    // Add to all font-select optgroups (Custom group)
+    document.querySelectorAll('.font-select').forEach(select => {
+        const customGroup = select.querySelector('optgroup[label*="Custom"]');
+        if (!customGroup) return;
+        // Don't add duplicates
+        if (customGroup.querySelector(`option[value="${name}"]`)) return;
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        customGroup.appendChild(opt);
+    });
+}
+
+/** Initialize font upload button. */
+function initFontUpload() {
+    const btn = document.getElementById('btn-upload-font');
+    const input = document.getElementById('font-upload-input');
+    if (!btn || !input) return;
+
+    btn.addEventListener('click', () => input.click());
+
+    input.addEventListener('change', async () => {
+        const file = input.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const resp = await fetch('/api/fonts', { method: 'POST', body: formData });
+            if (!resp.ok) {
+                const err = await resp.json();
+                showToast(err.detail || 'Failed to upload font', 'error');
+                return;
+            }
+            const font = await resp.json();
+            injectCustomFont(font.name, font.url);
+
+            // Auto-select the uploaded font in the global selector
+            const globalFont = document.getElementById('global-font');
+            if (globalFont) {
+                globalFont.value = font.name;
+                globalFont.dispatchEvent(new Event('change'));
+            }
+
+            showToast(`Font "${font.name}" uploaded!`);
+        } catch (err) {
+            showToast('Failed to upload font', 'error');
+        }
+        input.value = '';
+    });
+}
+
+// Initialize custom font upload and load existing custom fonts on DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+    initFontUpload();
+    loadCustomFonts();
+});
 
 
 // ── Export ────────────────────────────────────────────────────────────────────

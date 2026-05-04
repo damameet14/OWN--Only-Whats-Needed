@@ -11,6 +11,27 @@ except ImportError:
 
 _llm_cache = {}
 
+# Language code to script/language name mapping for LLM prompts
+LANGUAGE_MAP = {
+    "hi": {"name": "Hindi", "script": "Devanagari"},
+    "en": {"name": "English", "script": "Latin"},
+    "bn": {"name": "Bengali", "script": "Bengali"},
+    "ta": {"name": "Tamil", "script": "Tamil"},
+    "te": {"name": "Telugu", "script": "Telugu"},
+    "mr": {"name": "Marathi", "script": "Devanagari"},
+    "gu": {"name": "Gujarati", "script": "Gujarati"},
+    "kn": {"name": "Kannada", "script": "Kannada"},
+    "ml": {"name": "Malayalam", "script": "Malayalam"},
+    "pa": {"name": "Punjabi", "script": "Gurmukhi"},
+    "or": {"name": "Odia", "script": "Odia"},
+    "as": {"name": "Assamese", "script": "Bengali"},
+    "sa": {"name": "Sanskrit", "script": "Devanagari"},
+    "ne": {"name": "Nepali", "script": "Devanagari"},
+    "sd": {"name": "Sindhi", "script": "Arabic/Devanagari"},
+    "ur": {"name": "Urdu", "script": "Arabic"},
+}
+
+
 def get_llm(model_path: str):
     if model_path not in _llm_cache:
         if Llama is None:
@@ -34,10 +55,19 @@ def is_llm_available(model_dir: str, filename: str) -> Optional[str]:
         return model_path
     return None
 
-def transliterate_indic_to_roman_llm(model_path: str, words: List[Dict]) -> List[Dict]:
+def transliterate_indic_to_roman_llm(
+    model_path: str,
+    words: List[Dict],
+    language: str = "hi",
+) -> List[Dict]:
     """
     Transliterate an array of word objects containing Indic text
     into Romanized text using Gemma.
+
+    Args:
+        model_path: Path to the GGUF model file.
+        words: List of dicts with 'word' and optionally 'index' keys.
+        language: ISO 639-1 language code (e.g. 'hi', 'bn', 'ta').
     """
     if not words:
         return []
@@ -48,10 +78,15 @@ def transliterate_indic_to_roman_llm(model_path: str, words: List[Dict]) -> List
         print(f"Failed to load LLM: {e}")
         return []
 
+    # Resolve language info for the prompt
+    lang_info = LANGUAGE_MAP.get(language, LANGUAGE_MAP["hi"])
+    lang_name = lang_info["name"]
+    script_name = lang_info["script"]
+
     input_texts = [w.get("word", "") for w in words]
     
     prompt = f"""You are a strict transliteration assistant. 
-Transliterate the following Hindi words into Romanized Hindi (ITRANS).
+Transliterate the following {lang_name} words (written in {script_name} script) into Romanized text (ITRANS/ISO 15919).
 Output ONLY a strict JSON array of strings in the exact same order and length as the input. Do not output any markdown formatting or extra text.
 
 Input words: {json.dumps(input_texts, ensure_ascii=False)}
