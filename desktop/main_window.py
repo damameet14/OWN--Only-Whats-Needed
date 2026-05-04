@@ -35,7 +35,12 @@ class OWNMainWindow:
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
 
+        self.is_downloading = False
+        self.download_buttons = []
+        self._active_task_id = None
+
         self._build_ui()
+        self._poll_active_tasks()
 
     def _build_ui(self):
         # Header
@@ -88,29 +93,49 @@ class OWNMainWindow:
                       font=("Inter", 11), text_color="#a8a48e").pack()
 
     def _build_models_tab(self):
-        tab = self.tabs.add("Models")
+        self._models_tab = self.tabs.add("Models")
 
-        ctk.CTkLabel(tab, text="Installed Models", font=("Inter", 18, "bold"),
+        ctk.CTkLabel(self._models_tab, text="Installed Models", font=("Inter", 18, "bold"),
                       text_color="#fff").pack(pady=(20, 10), anchor="w", padx=16)
 
+        # Progress UI (packed first, then hidden — keeps correct order when shown)
+        self.progress_frame = ctk.CTkFrame(self._models_tab, fg_color="#23200f", corner_radius=8)
+        self.progress_label = ctk.CTkLabel(self.progress_frame, text="Downloading...", font=("Inter", 12), text_color="#ffe74d")
+        self.progress_label.pack(side="left", padx=12, pady=10)
+        self.cancel_btn = ctk.CTkButton(
+            self.progress_frame, text="✕ Cancel", font=("Inter", 10, "bold"),
+            fg_color="#ef4444", text_color="#fff", hover_color="#dc2626",
+            width=70, height=26, corner_radius=6,
+            command=self._cancel_download
+        )
+        self.cancel_btn.pack(side="right", padx=(0, 12), pady=10)
+        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, progress_color="#34d399")
+        self.progress_bar.pack(side="right", padx=12, pady=10, fill="x", expand=True)
+        self.progress_bar.set(0)
+        # Start hidden
+        self.progress_frame.pack(fill="x", padx=16, pady=5)
+        self.progress_frame.pack_forget()
+
         # Models list (will be populated at runtime)
-        self.models_frame = ctk.CTkScrollableFrame(tab, fg_color="#352f1a", corner_radius=12)
-        self.models_frame.pack(fill="both", expand=True, padx=16, pady=10)
+        self.models_frame = ctk.CTkScrollableFrame(self._models_tab, fg_color="#352f1a", corner_radius=12)
+        self.models_frame.pack(fill="both", expand=True, padx=16, pady=5)
 
         # Scan for models
         self._list_local_models()
 
         # Refresh button
-        ctk.CTkButton(
-            tab, text="Refresh Models", font=("Inter", 12),
+        self.refresh_btn = ctk.CTkButton(
+            self._models_tab, text="Refresh Models", font=("Inter", 12),
             fg_color="#23200f", text_color="#ffe74d", border_width=1,
             border_color="#ffe74d", hover_color="#352f1a",
             command=self._list_local_models
-        ).pack(pady=10)
+        )
+        self.refresh_btn.pack(pady=10)
 
     def _list_local_models(self):
         """Scan for both Vosk and Whisper models and show download status."""
         import requests
+        self.download_buttons.clear()
         for widget in self.models_frame.winfo_children():
             widget.destroy()
 
@@ -168,9 +193,11 @@ class OWNMainWindow:
                     row, text="Download", font=("Inter", 10, "bold"),
                     fg_color="#ffe74d", text_color="#23200f",
                     width=80, height=26, corner_radius=6,
+                    state="disabled" if self.is_downloading else "normal",
                     command=lambda n=name: self._download_model(n)
                 )
                 btn.pack(side="right", padx=12, pady=8)
+                self.download_buttons.append(btn)
 
     def _download_model(self, model_name):
         """Trigger model download via API."""
@@ -182,11 +209,143 @@ class OWNMainWindow:
                 timeout=5
             )
             if resp.status_code == 200:
-                print(f"Started download for {model_name}")
-                # Refresh UI after a bit
-                self.root.after(2000, self._list_local_models)
+                data = resp.json()
+                task_id = data.get("task_id")
+                print(f"Started download for {model_name} (task_id={task_id})")
+                # Store task_id immediately so Cancel works right away
+                self._active_task_id = task_id
+                # Immediately show progress bar
+                self.is_downloading = True
+                self._show_progress()
+                self.progress_bar.set(0)
+                self.progress_label.configure(text=f"Starting {model_name}...")
+                for btn in self.download_buttons:
+                    try:
+                        btn.configure(state="disabled")
+                    except Exception:
+                        pass
+                # Kick off fast polling immediately
+                self.root.after(1000, self._poll_active_tasks)
         except Exception as e:
             print(f"Download error: {e}")
+
+    def _cancel_download(self):
+        """Cancel the active model download via API."""
+        if not self._active_task_id:
+            return
+
+        # Immediate visual feedback
+        self.cancel_btn.configure(state="disabled", text="Cancelling...")
+        self.progress_label.configure(text="Cancelling download...")
+
+        task_id = self._active_task_id
+
+        def _do_cancel():
+            import requests as _req
+            try:
+                _req.post(
+                    f"{self.server_url}/api/tasks/{task_id}/cancel",
+                    timeout=5
+                )
+            except Exception:
+                pass
+            # Schedule a quick poll so the UI picks up the cancelled state fast
+            try:
+                self.root.after(500, self._poll_active_tasks)
+            except Exception:
+                pass
+
+        threading.Thread(target=_do_cancel, daemon=True).start()
+
+    def _poll_active_tasks(self):
+        """Poll the server for any active tasks and update the progress bar.
+        Runs the HTTP request in a background thread to avoid blocking tkinter."""
+        if not self.root:
+            return
+
+        def _fetch():
+            import requests as _req
+            try:
+                resp = _req.get(f"{self.server_url}/api/tasks/active", timeout=2)
+                if resp.status_code == 200:
+                    return resp.json()
+            except Exception:
+                pass
+            return None
+
+        def _on_result(active_tasks):
+            if not self.root:
+                return
+
+            if active_tasks:
+                # Find first active task
+                download_task = None
+                task_id = None
+                for tid, t in active_tasks.items():
+                    download_task = t
+                    task_id = tid
+                    break
+
+                if download_task:
+                    self._active_task_id = task_id
+                    pct = max(0, min(100, download_task.get("percent", 0)))
+                    msg = download_task.get("message", "Downloading...")
+
+                    if not self.is_downloading:
+                        self.is_downloading = True
+                        self._show_progress()
+                        for btn in self.download_buttons:
+                            try:
+                                btn.configure(state="disabled")
+                            except Exception:
+                                pass
+
+                    self.progress_bar.set(pct / 100.0)
+                    self.progress_label.configure(text=f"{msg} ({pct}%)")
+                else:
+                    self._finish_download()
+            else:
+                self._finish_download()
+
+            # Re-schedule only while downloading
+            if self.is_downloading:
+                self.root.after(2000, self._poll_active_tasks)
+
+        def _bg_poll():
+            result = _fetch()
+            # Schedule UI update on main thread
+            try:
+                self.root.after(0, lambda: _on_result(result))
+            except Exception:
+                pass
+
+        thread = threading.Thread(target=_bg_poll, daemon=True)
+        thread.start()
+
+    def _show_progress(self):
+        """Show the progress bar by repacking widgets in the correct order."""
+        # Unpack models and refresh, show progress, repack in order
+        self.refresh_btn.pack_forget()
+        self.models_frame.pack_forget()
+        self.progress_frame.pack(fill="x", padx=16, pady=5)
+        self.models_frame.pack(fill="both", expand=True, padx=16, pady=5)
+        self.refresh_btn.pack(pady=10)
+
+    def _finish_download(self):
+        """Called when no active tasks remain — hide progress and refresh."""
+        if self.is_downloading:
+            self.is_downloading = False
+            self._active_task_id = None
+            self.progress_frame.pack_forget()
+            self.progress_bar.set(0)
+            # Reset cancel button for next download
+            self.cancel_btn.configure(state="normal", text="✕ Cancel")
+            for btn in self.download_buttons:
+                try:
+                    btn.configure(state="normal")
+                except Exception:
+                    pass
+            self._list_local_models()
 
     def _build_users_tab(self):
         tab = self.tabs.add("Users")

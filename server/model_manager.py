@@ -35,6 +35,14 @@ AVAILABLE_MODELS = [
         "size_mb": 800,
         "url": None,  # Downloaded via huggingface_hub
     },
+    {
+        "name": "gemma-4-E2B-it-UD-IQ3_XXS.gguf",
+        "engine": "llama",
+        "language": "multi",
+        "label": "Gemma Transliteration Model (unsloth) — 1.5 GB",
+        "size_mb": 1500,
+        "url": None,
+    },
 ]
 
 
@@ -54,44 +62,148 @@ def get_available_models() -> list[dict]:
     return result
 
 
-async def download_whisper_model(
+async def download_ai_model(
     model_name: str,
     progress_callback: Optional[Callable[[int, str], None]] = None,
+    cancel_event: Optional["threading.Event"] = None,
 ) -> dict:
-    """Download a Whisper model from HuggingFace Hub (CTranslate2 format)."""
+    """Download a model from HuggingFace Hub (CTranslate2 or GGUF)."""
     if progress_callback:
         await progress_callback(0, f"Downloading {model_name} from HuggingFace...")
 
-    # Map internal name to HuggingFace repo
-    # IMPORTANT: faster-whisper requires CTranslate2-format models (model.bin), NOT safetensors.
     model_map = {
         "faster-whisper-large-v3": {
             "repo": "Systran/faster-whisper-large-v3",
             "size": "large-v3",
+            "type": "whisper",
         },
         "faster-whisper-large-v3-turbo": {
             "repo": "deepdml/faster-whisper-large-v3-turbo-ct2",
             "size": "large-v3-turbo",
+            "type": "whisper",
         },
+        "gemma-4-E2B-it-UD-IQ3_XXS.gguf": {
+            "repo": "unsloth/gemma-4-E2B-it-GGUF",
+            "filename": "gemma-4-E2B-it-UD-IQ3_XXS.gguf",
+            "type": "llama",
+        }
     }
 
     model_info = model_map.get(model_name)
     if model_info is None:
-        raise ValueError(f"Unknown whisper model: {model_name}")
+        raise ValueError(f"Unknown model: {model_name}")
 
     repo_id = model_info["repo"]
+    model_type = model_info["type"]
 
     model_dir = os.path.join(MODELS_DIR, model_name)
     os.makedirs(model_dir, exist_ok=True)
 
+    # BaseException subclass — escapes `except Exception:` blocks in libraries
+    class _DownloadCancelled(BaseException):
+        pass
+
+    # We'll use a shared dict to capture progress from the download thread
+    _progress_state = {"downloaded": 0, "total": 0, "done": False}
+
     def _download():
         import logging
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import snapshot_download, hf_hub_download
+        import tqdm as tqdm_mod
         logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
-        snapshot_download(repo_id=repo_id, local_dir=model_dir)
+
+        # Custom tqdm class to capture download progress
+        class ProgressTracker(tqdm_mod.tqdm):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                if self.total:
+                    _progress_state["total"] += self.total
+
+            def update(self, n=1):
+                super().update(n)
+                _progress_state["downloaded"] += n
+                # Check cancel flag inside the download thread
+                if cancel_event and cancel_event.is_set():
+                    raise _DownloadCancelled("Download cancelled")
+
+        try:
+            if model_type == "llama":
+                filename = model_info["filename"]
+                hf_hub_download(
+                    repo_id=repo_id,
+                    filename=filename,
+                    local_dir=model_dir,
+                    tqdm_class=ProgressTracker,
+                )
+            else:
+                snapshot_download(
+                    repo_id=repo_id,
+                    local_dir=model_dir,
+                    tqdm_class=ProgressTracker,
+                )
+        except _DownloadCancelled:
+            raise
+        except Exception:
+            # If any library caught and re-wrapped our exception, check the flag
+            if cancel_event and cancel_event.is_set():
+                raise _DownloadCancelled("Download cancelled")
+            raise
+
+        _progress_state["done"] = True
         return model_dir
 
-    await asyncio.to_thread(_download)
+    # Run the blocking download in a thread, but poll progress from the async side
+    import concurrent.futures
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(executor, _download)
+
+    def _cleanup_on_done(f):
+        """Clean up partial files if the thread finishes after cancellation."""
+        if cancel_event and cancel_event.is_set():
+            try:
+                if os.path.isdir(model_dir):
+                    shutil.rmtree(model_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+    future.add_done_callback(_cleanup_on_done)
+
+    # Poll progress while the download runs
+    cancelled = False
+    while not future.done():
+        await asyncio.sleep(2)
+
+        # Check if cancellation was requested
+        if cancel_event and cancel_event.is_set():
+            cancelled = True
+            break
+
+        total = _progress_state["total"]
+        downloaded = _progress_state["downloaded"]
+        if total > 0:
+            pct = min(90, int((downloaded / total) * 90))  # Cap at 90% until registration
+            size_mb = downloaded / (1024 * 1024)
+            total_mb = total / (1024 * 1024)
+            if progress_callback:
+                await progress_callback(pct, f"Downloading... {size_mb:.0f} / {total_mb:.0f} MB")
+        else:
+            if progress_callback:
+                await progress_callback(5, "Connecting to HuggingFace...")
+
+    if cancelled:
+        # Don't wait for the thread — the done_callback will clean up files
+        raise asyncio.CancelledError("Download cancelled by user")
+
+    # Retrieve result (will raise if _download() raised)
+    try:
+        await future
+    except (_DownloadCancelled, BaseException) as exc:
+        if cancel_event and cancel_event.is_set():
+            if os.path.isdir(model_dir):
+                shutil.rmtree(model_dir, ignore_errors=True)
+            raise asyncio.CancelledError("Download cancelled by user") from exc
+        raise
 
     if progress_callback:
         await progress_callback(95, "Registering model...")
@@ -104,7 +216,7 @@ async def download_whisper_model(
 
     model = db.register_model(
         name=model_name,
-        engine="whisper",
+        engine=model_type,
         language="multi",
         path=model_dir,
         size_bytes=size,
@@ -112,7 +224,7 @@ async def download_whisper_model(
     )
 
     if progress_callback:
-        await progress_callback(100, "Whisper model ready!")
+        await progress_callback(100, f"{model_name} ready!")
 
     return model
 

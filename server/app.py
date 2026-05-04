@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import uuid
 from typing import Optional
 
@@ -22,7 +23,7 @@ from server.config import (
     PRESETS_PATH, INPUT_EXTENSIONS, MAX_UPLOAD_SIZE, ensure_directories,
 )
 from server import database as db
-from server.model_manager import get_available_models, download_whisper_model, delete_model
+from server.model_manager import get_available_models, download_ai_model, delete_model
 from models.subtitle import SubtitleTrack, WordTiming
 from core.video_utils import get_video_info
 from core.srt_utils import generate_srt
@@ -52,6 +53,7 @@ app.add_middleware(
 # Task progress store (task_id → {percent, message, result})
 _tasks: dict[str, dict] = {}
 _task_events: dict[str, asyncio.Event] = {}
+_cancel_flags: dict[str, "threading.Event"] = {}
 
 
 @app.on_event("startup")
@@ -364,6 +366,8 @@ async def transliterate_endpoint(body: dict = Body(...)):
     Returns: { "transliterated": [{"index": 0, "original": "...", "roman": "..."}, ...] }
     """
     from core.transliterator import transliterate_words
+    from core.llm_transliterate import is_llm_available, transliterate_indic_to_roman_llm
+    from server.config import MODELS_DIR
 
     words = body.get("words", [])
     indices = body.get("indices", "all")
@@ -371,7 +375,22 @@ async def transliterate_endpoint(body: dict = Body(...)):
     if not words:
         raise HTTPException(400, "No words provided")
 
-    results = transliterate_words(words, indices)
+    # Determine which words need transliteration
+    if indices == "all":
+        target_words = [{"index": i, "word": w.get("word", "")} for i, w in enumerate(words)]
+    else:
+        target_words = [{"index": idx, "word": words[idx].get("word", "")} for idx in indices if 0 <= idx < len(words)]
+
+    model_dir = os.path.join(MODELS_DIR, "gemma-4-E2B-it-UD-IQ3_XXS.gguf")
+    llm_path = is_llm_available(model_dir, "gemma-4-E2B-it-UD-IQ3_XXS.gguf")
+
+    if llm_path:
+        # Use LLM for transliteration
+        results = transliterate_indic_to_roman_llm(llm_path, target_words)
+    else:
+        # Fallback to indic-transliteration
+        results = transliterate_words(words, indices)
+
     return {"transliterated": results}
 
 
@@ -577,30 +596,47 @@ async def download_model(body: dict):
     task_id = uuid.uuid4().hex
     _tasks[task_id] = {"percent": 0, "message": "Starting download...", "result": None}
     _task_events[task_id] = asyncio.Event()
+    _cancel_flags[task_id] = threading.Event()
 
     asyncio.create_task(_run_model_download(task_id, model_name))
     return {"task_id": task_id}
 
 
+@app.post("/api/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    """Cancel a running task."""
+    flag = _cancel_flags.get(task_id)
+    if flag is None:
+        raise HTTPException(404, "Task not found or not cancellable")
+    flag.set()
+    _tasks[task_id] = {"percent": -1, "message": "Cancelled by user", "result": None}
+    _task_events.get(task_id, asyncio.Event()).set()
+    return {"cancelled": True}
+
+
 async def _run_model_download(task_id: str, model_name: str):
-    """Background Whisper model download task."""
+    """Background model download task."""
+    cancel_event = _cancel_flags.get(task_id)
     try:
         async def progress_cb(percent, message):
             _tasks[task_id] = {"percent": percent, "message": message, "result": None}
             _task_events[task_id].set()
             _task_events[task_id] = asyncio.Event()
 
-        model = await download_whisper_model(model_name, progress_cb)
+        model = await download_ai_model(model_name, progress_cb, cancel_event=cancel_event)
 
         _tasks[task_id] = {
             "percent": 100,
             "message": "Download complete!",
             "result": model,
         }
+    except asyncio.CancelledError:
+        _tasks[task_id] = {"percent": -1, "message": "Cancelled by user", "result": None}
     except Exception as e:
         _tasks[task_id] = {"percent": -1, "message": f"Error: {e}", "result": None}
 
     _task_events.get(task_id, asyncio.Event()).set()
+    _cancel_flags.pop(task_id, None)
 
 
 @app.delete("/api/models/{model_id}")
@@ -696,6 +732,16 @@ async def delete_preset(preset_name: str):
 
 
 # ── Task status ───────────────────────────────────────────────────────────────
+
+@app.get("/api/tasks/active")
+async def get_active_tasks():
+    """Get all currently running tasks."""
+    active = {}
+    for tid, t in _tasks.items():
+        if 0 <= t.get("percent", 0) < 100:
+            active[tid] = t
+    return active
+
 
 @app.get("/api/tasks/{task_id}")
 async def get_task_status(task_id: str):

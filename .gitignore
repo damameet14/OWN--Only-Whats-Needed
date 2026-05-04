@@ -38,3 +38,6 @@ Thumbs.db
 Subtitle Editor Animation Integration.md
 AGENTS.md
 Implementing Indic Language Transliteration.md
+main.dist
+main.build
+Bundling Application for Release.md

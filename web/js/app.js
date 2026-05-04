@@ -85,6 +85,16 @@ async function uploadAndTranscribe(file) {
     const engine = 'whisper';
     const wordsPerLine = parseInt(document.getElementById('upload-wpl')?.value || '4');
 
+    try {
+        const installedModels = await getInstalledModels();
+        if (installedModels.length === 0) {
+            showToast('No AI models installed! Please download a model from the Desktop App or System Tray first.', 'error');
+            return;
+        }
+    } catch (err) {
+        console.error("Could not fetch models:", err);
+    }
+
     const progressDiv = document.getElementById('upload-progress');
     const statusEl = document.getElementById('upload-status');
     const barEl = document.getElementById('upload-progress-bar');
