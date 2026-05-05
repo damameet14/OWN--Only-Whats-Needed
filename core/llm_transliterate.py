@@ -83,51 +83,66 @@ def transliterate_indic_to_roman_llm(
     lang_name = lang_info["name"]
     script_name = lang_info["script"]
 
-    input_texts = [w.get("word", "") for w in words]
-    
-    prompt = f"""You are a strict transliteration assistant. 
+    results = []
+    chunk_size = 50
+    import re
+
+    for i in range(0, len(words), chunk_size):
+        chunk_words = words[i:i+chunk_size]
+        input_texts = [w.get("word", "") for w in chunk_words]
+        
+        prompt = f"""You are a strict transliteration assistant. 
 Transliterate the following {lang_name} words (written in {script_name} script) into Romanized text (ITRANS/ISO 15919).
 Output ONLY a strict JSON array of strings in the exact same order and length as the input. Do not output any markdown formatting or extra text.
 
 Input words: {json.dumps(input_texts, ensure_ascii=False)}
 Output JSON array:"""
 
-    try:
-        response = llm(
-            prompt,
-            max_tokens=10240,
-            stop=["\n\n", "```"],
-            temperature=0.1,
-        )
-        
-        output_text = response['choices'][0]['text'].strip()
-        
-        if output_text.startswith("```json"):
-            output_text = output_text[7:]
-        if output_text.startswith("```"):
-            output_text = output_text[3:]
-        if output_text.endswith("```"):
-            output_text = output_text[:-3]
+        try:
+            response = llm(
+                prompt,
+                max_tokens=10240,
+                temperature=0.1,
+            )
             
-        transliterated_list = json.loads(output_text.strip())
-        
-        results = []
-        for i, original_w in enumerate(words):
-            if i < len(transliterated_list):
+            output_text = response['choices'][0]['text'].strip()
+            
+            # Try to extract JSON array using regex if there's extra text
+            match = re.search(r'\[.*\]', output_text, re.DOTALL)
+            if match:
+                output_text = match.group(0)
+                
+            try:
+                transliterated_list = json.loads(output_text.strip())
+            except Exception as e:
+                print(f"JSON Parse Error: {e}, falling back to manual extraction")
+                clean_text = output_text.strip()
+                if clean_text.startswith('['): clean_text = clean_text[1:]
+                if clean_text.endswith(']'): clean_text = clean_text[:-1]
+                transliterated_list = [item.strip(' \n\r\t"\'') for item in clean_text.split(',')]
+            
+            for j, original_w in enumerate(chunk_words):
+                if j < len(transliterated_list) and transliterated_list[j]:
+                    results.append({
+                        "index": original_w.get("index", i + j),
+                        "original": original_w.get("word", ""),
+                        "roman": transliterated_list[j],
+                    })
+                else:
+                    # fallback
+                    results.append({
+                        "index": original_w.get("index", i + j),
+                        "original": original_w.get("word", ""),
+                        "roman": original_w.get("word", ""),
+                    })
+
+        except Exception as e:
+            print(f"LLM transliteration failed for chunk: {e}")
+            for j, original_w in enumerate(chunk_words):
                 results.append({
-                    "index": original_w.get("index", i),
-                    "original": original_w.get("word", ""),
-                    "roman": transliterated_list[i],
-                })
-            else:
-                # fallback
-                results.append({
-                    "index": original_w.get("index", i),
+                    "index": original_w.get("index", i + j),
                     "original": original_w.get("word", ""),
                     "roman": original_w.get("word", ""),
                 })
-        return results
 
-    except Exception as e:
-        print(f"LLM transliteration failed: {e}")
-        return []
+    return results
