@@ -5,30 +5,8 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>OWN Editor</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
-    <!-- Subtitle fonts — Devanagari -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@100..900&family=Mukta:wght@200..800&family=Baloo+2:wght@400..800&family=Poppins:wght@100..900&family=Tiro+Devanagari+Hindi&family=Hind:wght@300..700&display=swap" rel="stylesheet"/>
-    <!-- Bengali -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@100..900&family=Hind+Siliguri:wght@300..700&family=Baloo+Da+2:wght@400..800&family=Tiro+Bangla&display=swap" rel="stylesheet"/>
-    <!-- Tamil -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@100..900&family=Hind+Madurai:wght@300..700&family=Baloo+Thambi+2:wght@400..800&display=swap" rel="stylesheet"/>
-    <!-- Telugu -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Telugu:wght@100..900&family=Hind+Guntur:wght@300..700&family=Baloo+Tammudu+2:wght@400..800&display=swap" rel="stylesheet"/>
-    <!-- Gujarati -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@100..900&family=Hind+Vadodara:wght@300..700&family=Baloo+Bhai+2:wght@400..800&display=swap" rel="stylesheet"/>
-    <!-- Kannada -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Kannada:wght@100..900&family=Hind+Mysuru:wght@300..500&display=swap" rel="stylesheet"/>
-    <!-- Malayalam -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Malayalam:wght@100..900&family=Baloo+Chettan+2:wght@400..800&display=swap" rel="stylesheet"/>
-    <!-- Gurmukhi (Punjabi) -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gurmukhi:wght@100..900&family=Baloo+Paaji+2:wght@400..800&display=swap" rel="stylesheet"/>
-    <!-- Odia -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Oriya:wght@400;700&family=Baloo+Bhaina+2:wght@400..800&display=swap" rel="stylesheet"/>
-    <!-- Arabic / Urdu -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@100..900&family=Noto+Nastaliq+Urdu:wght@400;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet"/>
-    <!-- Latin (English) -->
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100..900&family=Montserrat:wght@100..900&family=Oswald:wght@200..700&family=Lato:wght@100..900&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+
     <link href="/css/app.css?v=2" rel="stylesheet"/>
     <script>
         tailwind.config = {
@@ -173,64 +151,6 @@
                                 <div>
                                     <label class="style-label">Font Family</label>
                                     <select id="global-font" class="style-select font-select">
-                                        <optgroup label="── Latin (English)">
-                                            <option value="Inter">Inter</option>
-                                            <option value="Roboto">Roboto</option>
-                                            <option value="Poppins">Poppins</option>
-                                            <option value="Montserrat">Montserrat</option>
-                                            <option value="Oswald">Oswald</option>
-                                            <option value="Lato">Lato</option>
-                                        </optgroup>
-                                        <optgroup label="── Devanagari (Hindi, Marathi, Sanskrit, Nepali)">
-                                            <option value="Noto Sans Devanagari" selected>Noto Sans Devanagari</option>
-                                            <option value="Mukta">Mukta</option>
-                                            <option value="Baloo 2">Baloo 2</option>
-                                            <option value="Poppins">Poppins</option>
-                                            <option value="Tiro Devanagari Hindi">Tiro Devanagari Hindi</option>
-                                            <option value="Hind">Hind</option>
-                                        </optgroup>
-                                        <optgroup label="── Bengali (Bengali, Assamese)">
-                                            <option value="Noto Sans Bengali">Noto Sans Bengali</option>
-                                            <option value="Hind Siliguri">Hind Siliguri</option>
-                                            <option value="Baloo Da 2">Baloo Da 2</option>
-                                            <option value="Tiro Bangla">Tiro Bangla</option>
-                                        </optgroup>
-                                        <optgroup label="── Tamil">
-                                            <option value="Noto Sans Tamil">Noto Sans Tamil</option>
-                                            <option value="Hind Madurai">Hind Madurai</option>
-                                            <option value="Baloo Thambi 2">Baloo Thambi 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Telugu">
-                                            <option value="Noto Sans Telugu">Noto Sans Telugu</option>
-                                            <option value="Hind Guntur">Hind Guntur</option>
-                                            <option value="Baloo Tammudu 2">Baloo Tammudu 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Gujarati">
-                                            <option value="Noto Sans Gujarati">Noto Sans Gujarati</option>
-                                            <option value="Hind Vadodara">Hind Vadodara</option>
-                                            <option value="Baloo Bhai 2">Baloo Bhai 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Kannada">
-                                            <option value="Noto Sans Kannada">Noto Sans Kannada</option>
-                                            <option value="Hind Mysuru">Hind Mysuru</option>
-                                        </optgroup>
-                                        <optgroup label="── Malayalam">
-                                            <option value="Noto Sans Malayalam">Noto Sans Malayalam</option>
-                                            <option value="Baloo Chettan 2">Baloo Chettan 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Gurmukhi (Punjabi)">
-                                            <option value="Noto Sans Gurmukhi">Noto Sans Gurmukhi</option>
-                                            <option value="Baloo Paaji 2">Baloo Paaji 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Odia">
-                                            <option value="Noto Sans Oriya">Noto Sans Oriya</option>
-                                            <option value="Baloo Bhaina 2">Baloo Bhaina 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Arabic (Urdu, Sindhi)">
-                                            <option value="Noto Sans Arabic">Noto Sans Arabic</option>
-                                            <option value="Noto Nastaliq Urdu">Noto Nastaliq Urdu</option>
-                                            <option value="Amiri">Amiri</option>
-                                        </optgroup>
                                         <optgroup label="── Custom" id="global-font-custom-group"></optgroup>
                                     </select>
                                     <button type="button" id="btn-upload-font" class="mt-1 text-[10px] text-primary/70 hover:text-primary flex items-center gap-1 transition-colors" title="Upload custom font (.ttf, .otf, .woff2)">
@@ -502,64 +422,6 @@
                                 <div>
                                     <label class="style-label">Font Family</label>
                                     <select id="special-font" class="style-select font-select">
-                                        <optgroup label="── Latin (English)">
-                                            <option value="Inter">Inter</option>
-                                            <option value="Roboto">Roboto</option>
-                                            <option value="Poppins">Poppins</option>
-                                            <option value="Montserrat">Montserrat</option>
-                                            <option value="Oswald">Oswald</option>
-                                            <option value="Lato">Lato</option>
-                                        </optgroup>
-                                        <optgroup label="── Devanagari (Hindi, Marathi, Sanskrit, Nepali)">
-                                            <option value="Noto Sans Devanagari" selected>Noto Sans Devanagari</option>
-                                            <option value="Mukta">Mukta</option>
-                                            <option value="Baloo 2">Baloo 2</option>
-                                            <option value="Poppins">Poppins</option>
-                                            <option value="Tiro Devanagari Hindi">Tiro Devanagari Hindi</option>
-                                            <option value="Hind">Hind</option>
-                                        </optgroup>
-                                        <optgroup label="── Bengali (Bengali, Assamese)">
-                                            <option value="Noto Sans Bengali">Noto Sans Bengali</option>
-                                            <option value="Hind Siliguri">Hind Siliguri</option>
-                                            <option value="Baloo Da 2">Baloo Da 2</option>
-                                            <option value="Tiro Bangla">Tiro Bangla</option>
-                                        </optgroup>
-                                        <optgroup label="── Tamil">
-                                            <option value="Noto Sans Tamil">Noto Sans Tamil</option>
-                                            <option value="Hind Madurai">Hind Madurai</option>
-                                            <option value="Baloo Thambi 2">Baloo Thambi 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Telugu">
-                                            <option value="Noto Sans Telugu">Noto Sans Telugu</option>
-                                            <option value="Hind Guntur">Hind Guntur</option>
-                                            <option value="Baloo Tammudu 2">Baloo Tammudu 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Gujarati">
-                                            <option value="Noto Sans Gujarati">Noto Sans Gujarati</option>
-                                            <option value="Hind Vadodara">Hind Vadodara</option>
-                                            <option value="Baloo Bhai 2">Baloo Bhai 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Kannada">
-                                            <option value="Noto Sans Kannada">Noto Sans Kannada</option>
-                                            <option value="Hind Mysuru">Hind Mysuru</option>
-                                        </optgroup>
-                                        <optgroup label="── Malayalam">
-                                            <option value="Noto Sans Malayalam">Noto Sans Malayalam</option>
-                                            <option value="Baloo Chettan 2">Baloo Chettan 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Gurmukhi (Punjabi)">
-                                            <option value="Noto Sans Gurmukhi">Noto Sans Gurmukhi</option>
-                                            <option value="Baloo Paaji 2">Baloo Paaji 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Odia">
-                                            <option value="Noto Sans Oriya">Noto Sans Oriya</option>
-                                            <option value="Baloo Bhaina 2">Baloo Bhaina 2</option>
-                                        </optgroup>
-                                        <optgroup label="── Arabic (Urdu, Sindhi)">
-                                            <option value="Noto Sans Arabic">Noto Sans Arabic</option>
-                                            <option value="Noto Nastaliq Urdu">Noto Nastaliq Urdu</option>
-                                            <option value="Amiri">Amiri</option>
-                                        </optgroup>
                                         <optgroup label="── Custom" id="special-font-custom-group"></optgroup>
                                     </select>
                                 </div>

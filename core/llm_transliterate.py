@@ -95,7 +95,7 @@ Output JSON array:"""
     try:
         response = llm(
             prompt,
-            max_tokens=1024,
+            max_tokens=10240,
             stop=["\n\n", "```"],
             temperature=0.1,
         )

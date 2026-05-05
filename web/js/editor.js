@@ -998,7 +998,6 @@ async function loadCustomFonts() {
     }
 }
 
-/** Inject a single custom font into the page: @font-face CSS + add to selectors. */
 function injectCustomFont(name, url) {
     // Inject @font-face if not already present
     const styleId = `custom-font-${name.replace(/\s+/g, '-')}`;
@@ -1012,13 +1011,82 @@ function injectCustomFont(name, url) {
     // Add to all font-select optgroups (Custom group)
     document.querySelectorAll('.font-select').forEach(select => {
         const customGroup = select.querySelector('optgroup[label*="Custom"]');
-        if (!customGroup) return;
-        // Don't add duplicates
-        if (customGroup.querySelector(`option[value="${name}"]`)) return;
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        customGroup.appendChild(opt);
+        if (customGroup && !customGroup.querySelector(`option[value="${name}"]`)) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            customGroup.appendChild(opt);
+        }
+        
+        // Also add to the master clone for search filtering
+        if (select._masterClone) {
+            const masterGroup = select._masterClone.querySelector('optgroup[label*="Custom"]');
+            if (masterGroup && !masterGroup.querySelector(`option[value="${name}"]`)) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                masterGroup.appendChild(opt);
+            }
+        }
+    });
+}
+
+/** Initialize searchable font dropdowns natively */
+function initFontSearch() {
+    document.querySelectorAll('.font-select').forEach(select => {
+        // Save the original options hierarchy
+        select._masterClone = select.cloneNode(true);
+        
+        // Create search input
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Search fonts...';
+        searchInput.className = 'w-full bg-black/20 border border-white/10 rounded px-2 py-1.5 text-[11px] text-white mb-1.5 focus:outline-none focus:border-primary/50 placeholder:text-slate-500 transition-colors';
+        
+        // Insert right before the select dropdown
+        select.parentNode.insertBefore(searchInput, select);
+        
+        // Filter options on input
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            const currentValue = select.value;
+            
+            // If empty, restore all original options
+            if (!query) {
+                select.innerHTML = select._masterClone.innerHTML;
+                select.value = currentValue;
+                return;
+            }
+            
+            // Work on a detached clone to minimize reflows
+            const temp = select._masterClone.cloneNode(true);
+            
+            temp.querySelectorAll('optgroup').forEach(group => {
+                let hasVisible = false;
+                group.querySelectorAll('option').forEach(opt => {
+                    // Keep options that match search, or the currently selected one
+                    if (opt.textContent.toLowerCase().includes(query) || opt.value === currentValue) {
+                        hasVisible = true;
+                    } else {
+                        opt.remove();
+                    }
+                });
+                if (!hasVisible) {
+                    group.remove();
+                }
+            });
+            
+            // Filter top level options if any
+            temp.querySelectorAll(':scope > option').forEach(opt => {
+                if (!opt.textContent.toLowerCase().includes(query) && opt.value !== currentValue) {
+                    opt.remove();
+                }
+            });
+            
+            // Apply filtered HTML back to live select
+            select.innerHTML = temp.innerHTML;
+            select.value = currentValue;
+        });
     });
 }
 
@@ -1064,6 +1132,7 @@ function initFontUpload() {
 
 // Initialize custom font upload and load existing custom fonts on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
+    initFontSearch();
     initFontUpload();
     loadCustomFonts();
 });

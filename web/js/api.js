@@ -231,8 +231,12 @@ function watchProgress(taskId, onUpdate, onComplete, onError) {
 
         if (onUpdate) onUpdate(data);
 
-        if (data.percent >= 100 || data.percent < 0) {
+        if (data.percent >= 100) {
             if (onComplete) onComplete(data);
+            ws.close();
+        } else if (data.percent < 0) {
+            // Negative percent indicates an error from the backend
+            if (onError) onError(data.message || 'Export failed');
             ws.close();
         }
     };

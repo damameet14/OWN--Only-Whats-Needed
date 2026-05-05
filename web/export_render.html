@@ -3,7 +3,9 @@
 <head>
     <meta charset="utf-8">
     <title>OWN Subtitle Export Renderer</title>
-    <!-- We only need preview.js and its styling dependencies if any (none really) -->
+    <!-- Load identical fonts and styles to the main app for accurate rendering -->
+
+    <link href="css/app.css" rel="stylesheet"/>
     <script src="js/preview.js"></script>
     <style>
         body, html {
@@ -33,13 +35,27 @@
         };
 
         // This is called once by Python to set up the environment
-        window.initRenderer = function(width, height, subtitleTrackJson) {
+        window.initRenderer = async function(width, height, subtitleTrackJson, customFonts) {
             mockVideo.videoWidth = width;
             mockVideo.videoHeight = height;
 
             const canvas = document.getElementById('subtitle-canvas');
             canvas.width = width;
             canvas.height = height;
+
+            // Load custom fonts from injected local file URIs
+            try {
+                const fonts = customFonts || [];
+                for (const font of fonts) {
+                    const style = document.createElement('style');
+                    style.textContent = `@font-face { font-family: '${font.name}'; src: url('${font.url}'); font-display: swap; }`;
+                    document.head.appendChild(style);
+                }
+                // Wait for all fonts to be loaded before rendering
+                await document.fonts.ready;
+            } catch (err) {
+                console.error('Failed to load custom fonts', err);
+            }
 
             preview = new SubtitlePreview(mockVideo, canvas);
             
@@ -78,19 +94,26 @@
             return imgData.data;
         };
 
-        // Fallback for batch rendering to improve performance
+        // Batch rendering optimized by cropping to subtitle bounding box
         window.renderFrameBatch = function(timestamps) {
             const results = [];
+
             for (let t of timestamps) {
                 mockVideo.currentTime = t;
                 preview.draw();
-                const ctx = preview.canvas.getContext('2d');
-                // Getting the dataURL might be faster to transfer over IPC than huge raw arrays, 
-                // but base64 decoding in Python takes time. We will return raw arrays.
-                // Wait, playwright's evaluate() handles large arrays but it might serialize to JSON.
-                // An array of arrays might be huge. Let's try returning an array of Data URLs (PNG).
-                // PNG compression in browser is fast, base64 transfer is compact.
-                results.push(preview.canvas.toDataURL('image/png'));
+                
+                if (preview._lastBBox) {
+                    results.push({
+                        has_subtitle: true,
+                        x: 0,
+                        y: 0,
+                        data: preview.canvas.toDataURL('image/png')
+                    });
+                    continue;
+                }
+                
+                // Fallback for empty frames
+                results.push({ has_subtitle: false });
             }
             return results;
         };

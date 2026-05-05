@@ -14,11 +14,14 @@ huggingface_hub>=0.20.0
 ffmpeg-python>=0.2.0
 numpy>=1.24.0
 Pillow>=10.0.0
-PySide6>=6.7.0
+
+# ── Export (headless browser rendering) ────
+playwright>=1.40.0
 
 # ── Desktop app ────────────────────────────
 pystray>=0.19.5
 customtkinter>=5.2.0
+PySide6>=6.7.0
 
 # ── Transliteration ────────────────────────
 indic-transliteration>=2.3.0
