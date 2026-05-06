@@ -21,7 +21,7 @@ playwright>=1.40.0
 # ── Desktop app ────────────────────────────
 pystray>=0.19.5
 customtkinter>=5.2.0
-PySide6>=6.7.0
+win10toast>=0.9
 
 # ── Transliteration ────────────────────────
 indic-transliteration>=2.3.0

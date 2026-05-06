@@ -787,8 +787,9 @@ async def ws_progress(websocket: WebSocket, task_id: str):
 
 def _generate_thumbnail(video_path: str, thumb_path: str):
     """Generate a thumbnail from the video at 1 second."""
+    from server.config import get_ffmpeg_path
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg_path(), "-y",
         "-i", video_path,
         "-ss", "1",
         "-vframes", "1",

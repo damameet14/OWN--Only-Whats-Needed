@@ -189,7 +189,8 @@ async def export_video(
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page()
                 
-                html_path = pathlib.Path("web/export_render.html").absolute().as_uri()
+                from server.config import PROJECT_ROOT
+                html_path = pathlib.Path(os.path.join(PROJECT_ROOT, "web", "export_render.html")).as_uri()
                 await page.goto(html_path)
                 
                 import pathlib

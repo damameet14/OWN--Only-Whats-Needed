@@ -17,6 +17,9 @@ vosk_models/
 # Build artifacts
 build/
 dist/
+main.dist
+main.build
+output
 *.spec
 
 # Bundled binaries (user must place these manually or via build script)

@@ -86,7 +86,6 @@ def configure_hosts_file(hostname: str = "own.local", ip: str = "127.0.0.1") -> 
             except Exception:
                 return False
 
-
 def check_models_installed() -> bool:
     """Check if any Whisper models are present in models_data."""
     models_dir = os.path.join(_PROJECT_ROOT, "models_data")
@@ -98,15 +97,50 @@ def check_models_installed() -> bool:
     return False
 
 
+def check_playwright_browsers() -> bool:
+    """Check if Playwright Chromium browser is installed, and install if missing.
+
+    Returns True if Chromium is available after this call.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        # Quick check: try to launch and immediately close
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            browser.close()
+        return True
+    except Exception:
+        pass
+
+    # Chromium not available — try to install it
+    print("[Setup] Installing Playwright Chromium browser (needed for video export)...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=300,  # 5 min timeout
+        )
+        if result.returncode == 0:
+            return True
+        else:
+            print(f"[Setup] playwright install stderr: {result.stderr.decode(errors='replace')}")
+            return False
+    except Exception as e:
+        print(f"[Setup] Failed to install Playwright browsers: {e}")
+        return False
+
+
 def run_first_time_setup() -> dict:
     """Run first-time setup checks and return status.
 
     Returns:
-        dict with keys: hosts_configured, models_installed, setup_complete
+        dict with keys: hosts_configured, models_installed, playwright_ready, setup_complete
     """
     result = {
         "hosts_configured": False,
         "models_installed": False,
+        "playwright_ready": False,
         "setup_complete": False,
     }
 
@@ -126,6 +160,15 @@ def run_first_time_setup() -> dict:
         print("[Setup] ✓ Models found")
     else:
         print("[Setup] ⚠ No models found. Download one through the Models tab or web UI.")
+
+    # Step 3: Ensure Playwright Chromium is available
+    print("[Setup] Checking Playwright Chromium browser...")
+    result["playwright_ready"] = check_playwright_browsers()
+    if result["playwright_ready"]:
+        print("[Setup] ✓ Playwright Chromium is ready")
+    else:
+        print("[Setup] ⚠ Playwright Chromium not available. Video export may not work.")
+        print("[Setup]   Try running: python -m playwright install chromium")
 
     # Mark as complete
     mark_setup_complete()
