@@ -43,15 +43,18 @@
             canvas.width = width;
             canvas.height = height;
 
-            // Load custom fonts from injected local file URIs
+            // Load custom fonts using FontFace API to ensure they are downloaded before rendering
             try {
                 const fonts = customFonts || [];
+                const loadPromises = [];
                 for (const font of fonts) {
-                    const style = document.createElement('style');
-                    style.textContent = `@font-face { font-family: '${font.name}'; src: url('${font.url}'); font-display: swap; }`;
-                    document.head.appendChild(style);
+                    const fontFace = new FontFace(font.name, `url('${font.url}')`);
+                    document.fonts.add(fontFace);
+                    loadPromises.push(fontFace.load());
                 }
-                // Wait for all fonts to be loaded before rendering
+                // Wait for all specific fonts to be fully downloaded and parsed
+                await Promise.all(loadPromises);
+                // Also wait for the document fonts to be ready
                 await document.fonts.ready;
             } catch (err) {
                 console.error('Failed to load custom fonts', err);

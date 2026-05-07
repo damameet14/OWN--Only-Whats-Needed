@@ -23,7 +23,7 @@ from server.config import (
     PRESETS_PATH, INPUT_EXTENSIONS, MAX_UPLOAD_SIZE, ensure_directories,
 )
 from server import database as db
-from server.model_manager import get_available_models, download_ai_model, delete_model
+from server.model_manager import get_available_models, download_ai_model, delete_model, install_model_from_zip
 from models.subtitle import SubtitleTrack, WordTiming
 from core.video_utils import get_video_info
 from core.srt_utils import generate_srt
@@ -601,6 +601,37 @@ async def download_model(body: dict):
 
     asyncio.create_task(_run_model_download(task_id, model_name))
     return {"task_id": task_id}
+
+
+@app.post("/api/models/upload")
+async def upload_model(name: str = Form(...), engine: str = Form(...), file: UploadFile = File(...)):
+    """Upload a model via ZIP file."""
+    if not file.filename.endswith('.zip'):
+        raise HTTPException(400, "File must be a .zip archive")
+        
+    # Save the uploaded ZIP to a temporary file
+    fd, temp_path = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    
+    try:
+        with open(temp_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+            
+        # Extract and register the model
+        model = install_model_from_zip(temp_path, name, engine)
+        return model
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error(f"Error extracting uploaded model ZIP: {e}")
+        raise HTTPException(500, f"Failed to extract model: {e}")
+    finally:
+        # Always delete the temporary ZIP file
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 @app.post("/api/tasks/{task_id}/cancel")

@@ -115,8 +115,12 @@ def check_playwright_browsers() -> bool:
     # Chromium not available — try to install it
     print("[Setup] Installing Playwright Chromium browser (needed for video export)...")
     try:
+        from playwright._impl._driver import compute_driver_executable, get_driver_env
+        driver_executable, driver_cli = compute_driver_executable()
+        
         result = subprocess.run(
-            [sys.executable, "-m", "playwright", "install", "chromium"],
+            [driver_executable, driver_cli, "install", "chromium"],
+            env=get_driver_env(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=300,  # 5 min timeout

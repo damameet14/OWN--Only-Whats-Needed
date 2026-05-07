@@ -126,14 +126,24 @@ class OWNMainWindow:
         # Scan for models
         self._list_local_models()
 
-        # Refresh button
+        # Bottom buttons frame
+        self.models_btn_frame = ctk.CTkFrame(self._models_tab, fg_color="transparent")
+        self.models_btn_frame.pack(pady=10, fill="x", padx=16)
+
         self.refresh_btn = ctk.CTkButton(
-            self._models_tab, text="Refresh Models", font=("Inter", 12),
+            self.models_btn_frame, text="Refresh Models", font=("Inter", 12),
             fg_color="#23200f", text_color="#ffe74d", border_width=1,
-            border_color="#ffe74d", hover_color="#352f1a",
+            border_color="#ffe74d", hover_color="#352f1a", width=120,
             command=self._list_local_models
         )
-        self.refresh_btn.pack(pady=10)
+        self.refresh_btn.pack(side="left", padx=(0, 10))
+        
+        self.install_zip_btn = ctk.CTkButton(
+            self.models_btn_frame, text="Install from ZIP", font=("Inter", 12, "bold"),
+            fg_color="#ffe74d", text_color="#23200f", hover_color="#ffd700", width=120,
+            command=self._install_from_zip
+        )
+        self.install_zip_btn.pack(side="right")
 
     def _list_local_models(self):
         """Scan for both Vosk and Whisper models and show download status."""
@@ -259,6 +269,70 @@ class OWNMainWindow:
                 pass
 
         threading.Thread(target=_do_cancel, daemon=True).start()
+
+    def _install_from_zip(self):
+        from tkinter import filedialog, simpledialog
+        import threading
+        
+        zip_path = filedialog.askopenfilename(
+            title="Select Model ZIP",
+            filetypes=[("ZIP Archives", "*.zip")]
+        )
+        if not zip_path:
+            return
+            
+        # Determine engine
+        engine = "whisper"
+        if "llama" in zip_path.lower() or "gemma" in zip_path.lower():
+            engine = "llama"
+            
+        # Ask for name
+        default_name = os.path.basename(zip_path).replace(".zip", "")
+        model_name = simpledialog.askstring("Model Name", "Enter a name for this model:", initialvalue=default_name)
+        if not model_name:
+            return
+
+        self.is_downloading = True
+        self._show_progress()
+        self.progress_bar.set(0)
+        self.progress_bar.configure(mode="indeterminate")
+        self.progress_bar.start()
+        self.progress_label.configure(text=f"Extracting {model_name}...")
+        self.cancel_btn.configure(state="disabled", text="Please wait")
+
+        for btn in self.download_buttons:
+            try:
+                btn.configure(state="disabled")
+            except Exception:
+                pass
+
+        def _do_upload():
+            import requests as _req
+            try:
+                with open(zip_path, 'rb') as f:
+                    resp = _req.post(
+                        f"{self.server_url}/api/models/upload",
+                        data={"name": model_name, "engine": engine},
+                        files={"file": (os.path.basename(zip_path), f, "application/zip")}
+                    )
+                
+                # Update UI safely
+                if self.root:
+                    self.root.after(0, lambda: self._on_upload_complete(resp.status_code == 200))
+            except Exception as e:
+                print(f"Zip upload failed: {e}")
+                if self.root:
+                    self.root.after(0, lambda: self._on_upload_complete(False))
+
+        threading.Thread(target=_do_upload, daemon=True).start()
+
+    def _on_upload_complete(self, success: bool):
+        self.progress_bar.stop()
+        self.progress_bar.configure(mode="determinate")
+        self.is_downloading = False
+        self._hide_progress()
+        self.cancel_btn.configure(state="normal", text="✕ Cancel")
+        self._list_local_models()
 
     def _poll_active_tasks(self):
         """Poll the server for any active tasks and update the progress bar.

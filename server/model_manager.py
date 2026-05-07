@@ -229,6 +229,62 @@ async def download_ai_model(
     return model
 
 
+def install_model_from_zip(zip_path: str, model_name: str, engine: str) -> dict:
+    """Extract a ZIP file containing a model and register it."""
+    import zipfile
+    
+    model_dir = os.path.join(MODELS_DIR, model_name)
+    os.makedirs(model_dir, exist_ok=True)
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            # Check if it has a single top-level directory or directly files
+            top_level_items = set(p.split('/')[0] for p in zip_ref.namelist())
+            
+            # Extract
+            zip_ref.extractall(model_dir)
+            
+            # If the zip had a single wrapper folder (e.g. faster-whisper-turbo/), move files up
+            if len(top_level_items) == 1:
+                wrapper_folder = list(top_level_items)[0]
+                wrapper_path = os.path.join(model_dir, wrapper_folder)
+                if os.path.isdir(wrapper_path):
+                    for item in os.listdir(wrapper_path):
+                        shutil.move(os.path.join(wrapper_path, item), model_dir)
+                    os.rmdir(wrapper_path)
+            
+        # Verify model files exist depending on engine
+        if engine == "whisper":
+            if not os.path.exists(os.path.join(model_dir, "model.bin")):
+                raise ValueError("ZIP does not contain 'model.bin'. Is this a valid CTranslate2 Faster-Whisper model?")
+        elif engine == "llama":
+            if not any(f.endswith(".gguf") for f in os.listdir(model_dir)):
+                raise ValueError("ZIP does not contain a .gguf file. Is this a valid LLaMA model?")
+                
+        # Register model
+        size = sum(
+            os.path.getsize(os.path.join(dp, f))
+            for dp, _, fnames in os.walk(model_dir)
+            for f in fnames
+        )
+        
+        model = db.register_model(
+            name=model_name,
+            engine=engine,
+            language="multi",
+            path=model_dir,
+            size_bytes=size,
+            is_default=False,
+        )
+        
+        return model
+    except Exception as e:
+        # Cleanup on failure
+        if os.path.isdir(model_dir):
+            shutil.rmtree(model_dir, ignore_errors=True)
+        raise e
+
+
 def delete_model(model_id: int) -> bool:
     """Delete a model record (and its files if managed by us)."""
     model = db.get_model(model_id)
