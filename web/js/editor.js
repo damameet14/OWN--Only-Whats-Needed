@@ -736,6 +736,21 @@ function applyTrackToControls(track) {
     setVal('global-opacity', Math.round((style.text_opacity ?? 1) * 100));
     setText('global-opacity-val', Math.round((style.text_opacity ?? 1) * 100));
 
+    // §6b Word Background
+    const wbgChk = document.getElementById('global-word-bg-enabled');
+    if (wbgChk) wbgChk.checked = !!style.word_bg_enabled;
+    setVal('global-word-bg-color', style.word_bg_color || '#000000');
+    const wbgCtrl = document.getElementById('global-word-bg-controls');
+    if (wbgCtrl) { wbgCtrl.style.opacity = style.word_bg_enabled ? '1' : '0.3'; wbgCtrl.style.pointerEvents = style.word_bg_enabled ? 'auto' : 'none'; }
+
+    // Karaoke settings
+    setVal('global-karaoke-color', style.karaoke_color || '#FFD700');
+    const karUseBg = document.getElementById('global-karaoke-use-bg');
+    if (karUseBg) karUseBg.checked = !!style.karaoke_use_bg;
+    setVal('global-karaoke-bg-color', style.karaoke_bg_color || '#FFD700');
+    const karBgCtrl = document.getElementById('karaoke-bg-controls');
+    if (karBgCtrl) { karBgCtrl.style.opacity = style.karaoke_use_bg ? '1' : '0.3'; karBgCtrl.style.pointerEvents = style.karaoke_use_bg ? 'auto' : 'none'; }
+
     // Video section
     setVal('global-vid-rotation', track.video_rotation || 0);
     setText('global-vid-rot-val', `${track.video_rotation || 0}°`);
@@ -768,6 +783,9 @@ function applyTrackToControls(track) {
     setVal('global-word-animation', track.word_animation_type || 'none');
     setVal('global-word-anim-duration', track.word_animation_duration || 0.3);
     setText('global-word-anim-dur-val', `${track.word_animation_duration || 0.3}s`);
+    // Show/hide karaoke options based on word animation type
+    const karOpts = document.getElementById('karaoke-options');
+    if (karOpts) karOpts.classList.toggle('hidden', (track.word_animation_type || 'none') !== 'karaoke');
 }
 
 // Toggle fill controls visibility
@@ -2544,6 +2562,9 @@ function initGlobalStyleControls() {
             preview?.setTrack(subtitleTrack);
             autoSave();
         }
+        // Show/hide karaoke options
+        const karOpts = document.getElementById('karaoke-options');
+        if (karOpts) karOpts.classList.toggle('hidden', e.target.value !== 'karaoke');
     });
     document.getElementById('global-word-anim-duration')?.addEventListener('input', (e) => {
         document.getElementById('global-word-anim-dur-val').textContent = `${e.target.value}s`;
@@ -2552,6 +2573,29 @@ function initGlobalStyleControls() {
             preview?.setTrack(subtitleTrack);
             autoSave();
         }
+    });
+
+    // §6b Word Background controls
+    document.getElementById('global-word-bg-enabled')?.addEventListener('change', (e) => {
+        updateGlobalStyle('word_bg_enabled', e.target.checked);
+        const ctrl = document.getElementById('global-word-bg-controls');
+        if (ctrl) { ctrl.style.opacity = e.target.checked ? '1' : '0.3'; ctrl.style.pointerEvents = e.target.checked ? 'auto' : 'none'; }
+    });
+    document.getElementById('global-word-bg-color')?.addEventListener('input', (e) => {
+        updateGlobalStyle('word_bg_color', e.target.value);
+    });
+
+    // Karaoke customization controls
+    document.getElementById('global-karaoke-color')?.addEventListener('input', (e) => {
+        updateGlobalStyle('karaoke_color', e.target.value);
+    });
+    document.getElementById('global-karaoke-use-bg')?.addEventListener('change', (e) => {
+        updateGlobalStyle('karaoke_use_bg', e.target.checked);
+        const ctrl = document.getElementById('karaoke-bg-controls');
+        if (ctrl) { ctrl.style.opacity = e.target.checked ? '1' : '0.3'; ctrl.style.pointerEvents = e.target.checked ? 'auto' : 'none'; }
+    });
+    document.getElementById('global-karaoke-bg-color')?.addEventListener('input', (e) => {
+        updateGlobalStyle('karaoke_bg_color', e.target.value);
     });
 
     // Specials Animation controls — Per-Word (for highlight/spotlight markers)

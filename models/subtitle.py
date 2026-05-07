@@ -78,6 +78,15 @@ class SubtitleStyle:
     # ── Opacity ───────────────────────────────────────────────────────────
     text_opacity: float = 1.0       # 0.0–1.0
 
+    # ── Word Background ───────────────────────────────────────────────────
+    word_bg_enabled: bool = False   # per-word background rectangle
+    word_bg_color: str = "#000000"  # color of the word background
+
+    # ── Karaoke ───────────────────────────────────────────────────────────
+    karaoke_color: str = "#FFD700"      # highlight text color for karaoke
+    karaoke_use_bg: bool = False        # use background rect instead of text recolor
+    karaoke_bg_color: str = "#FFD700"   # background color when karaoke_use_bg is True
+
     # ── Legacy / Layout ───────────────────────────────────────────────────
     bg_color: str = ""              # empty = no background
     bg_padding: int = 8

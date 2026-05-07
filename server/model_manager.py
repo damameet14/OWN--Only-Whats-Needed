@@ -26,6 +26,7 @@ AVAILABLE_MODELS = [
         "label": "Whisper Large v3 (Multilingual) — 3 GB",
         "size_mb": 3000,
         "url": None,  # Downloaded via huggingface_hub
+        "zip_url": "https://drive.google.com/uc?export=download&id=1HF7WJodZDrVzTq0PHdgtT9G2pAprvLhL",
     },
     {
         "name": "faster-whisper-large-v3-turbo",
@@ -34,6 +35,7 @@ AVAILABLE_MODELS = [
         "label": "Whisper Large v3 Turbo (Multilingual) — 800 MB ⭐ Default",
         "size_mb": 800,
         "url": None,  # Downloaded via huggingface_hub
+        "zip_url": "https://drive.google.com/uc?export=download&id=1dIcOkDQmQ6ga_VhUNHqm3_Fb28PveHQZ",
     },
     {
         "name": "gemma-4-E2B-it-UD-IQ3_XXS.gguf",
@@ -42,6 +44,7 @@ AVAILABLE_MODELS = [
         "label": "Gemma Transliteration Model (unsloth) — 1.5 GB",
         "size_mb": 1500,
         "url": None,
+        "zip_url": "https://drive.google.com/uc?export=download&id=1yuV1vUeyvcA1AVEeJjwoECIRMsPcGyTx",
     },
 ]
 

@@ -311,6 +311,22 @@
                             </div>
                         </details>
 
+                        <!-- §6b Word Background -->
+                        <details class="style-group">
+                            <summary class="style-group-header">🏷️ Word Background</summary>
+                            <div class="style-group-body">
+                                <div>
+                                    <label class="style-label">
+                                        <input type="checkbox" id="global-word-bg-enabled" class="mr-2 accent-primary"/> Enable Word Background
+                                    </label>
+                                </div>
+                                <div id="global-word-bg-controls" style="opacity:0.3;pointer-events:none">
+                                    <label class="style-label">Background Color</label>
+                                    <input type="color" id="global-word-bg-color" value="#000000" class="style-color"/>
+                                </div>
+                            </div>
+                        </details>
+
                         <!-- §7 Position Grid (visible only when a word/segment is selected) -->
                         <details class="style-group hidden" id="standard-position-group">
                             <summary class="style-group-header">📍 Position</summary>
@@ -373,6 +389,24 @@
                                 <div>
                                     <label class="style-label">Duration: <span id="global-word-anim-dur-val">0.3s</span></label>
                                     <input type="range" id="global-word-anim-duration" min="0.1" max="1.0" step="0.1" value="0.3" class="style-range"/>
+                                </div>
+                                <!-- Karaoke Options (shown only when karaoke is selected) -->
+                                <div id="karaoke-options" class="hidden space-y-3 mt-2 pt-2 border-t border-white/10">
+                                    <p class="text-[10px] text-amber-400/80 font-semibold uppercase tracking-wider">Karaoke Settings</p>
+                                    <div>
+                                        <label class="style-label">Highlight Color</label>
+                                        <input type="color" id="global-karaoke-color" value="#FFD700" class="style-color"/>
+                                    </div>
+                                    <div>
+                                        <label class="style-label">
+                                            <input type="checkbox" id="global-karaoke-use-bg" class="mr-2 accent-primary"/> Use Background Highlight
+                                        </label>
+                                        <p class="text-[10px] text-slate-500 mt-0.5">Show a colored background behind the active word instead of changing text color</p>
+                                    </div>
+                                    <div id="karaoke-bg-controls" style="opacity:0.3;pointer-events:none">
+                                        <label class="style-label">Background Color</label>
+                                        <input type="color" id="global-karaoke-bg-color" value="#FFD700" class="style-color"/>
+                                    </div>
                                 </div>
                             </div>
                         </details>

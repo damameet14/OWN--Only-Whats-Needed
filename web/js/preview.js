@@ -507,7 +507,25 @@ class SubtitlePreview {
                     continue;
                 }
 
-                // Background
+                // Word Background (per-word background rect)
+                if (style.word_bg_enabled && style.word_bg_color) {
+                    const pad = 4 * scaleFactor;
+                    const bgRadius = 3 * scaleFactor;
+                    ctx.save();
+                    ctx.fillStyle = style.word_bg_color;
+                    ctx.globalAlpha = ctx.globalAlpha * 0.75;  // Slightly transparent
+                    const bgX = drawX - pad;
+                    const bgY = drawY - pad;
+                    const bgW = ww + 2 * pad;
+                    const bgH = lineH + 2 * pad;
+                    ctx.beginPath();
+                    ctx.roundRect(bgX, bgY, bgW, bgH, bgRadius);
+                    ctx.fill();
+                    ctx.restore();
+                    ctx.globalAlpha = animState.opacity * wordOpacity * (style.text_opacity ?? 1);
+                }
+
+                // Legacy segment background
                 if (style.bg_color) {
                     ctx.fillStyle = style.bg_color;
                     const pad = (style.bg_padding || 8) * scaleFactor;
@@ -535,9 +553,26 @@ class SubtitlePreview {
                     ctx.strokeText(text, drawX, drawY);
                 }
 
-                // Fill — karaoke highlight changes fill color
+                // Fill — karaoke highlight (configurable color + optional background mode)
                 if (wAnimState.isHighlighted) {
-                    ctx.fillStyle = '#FFD700';  // Karaoke highlight color
+                    const karColor = segStyle.karaoke_color || '#FFD700';
+                    if (segStyle.karaoke_use_bg) {
+                        // Background highlight mode: draw a colored rect, keep normal text fill
+                        const pad = 3 * scaleFactor;
+                        const bgRadius = 3 * scaleFactor;
+                        ctx.save();
+                        ctx.fillStyle = segStyle.karaoke_bg_color || karColor;
+                        ctx.globalAlpha = animState.opacity * wordOpacity * 0.85;
+                        ctx.beginPath();
+                        ctx.roundRect(drawX - pad, drawY - pad, ww + 2 * pad, lineH + 2 * pad, bgRadius);
+                        ctx.fill();
+                        ctx.restore();
+                        ctx.globalAlpha = animState.opacity * wordOpacity * (style.text_opacity ?? 1);
+                        ctx.fillStyle = this.buildFillStyle(ctx, style, drawX, drawY, ww, lineH, scaleFactor);
+                    } else {
+                        // Text recolor mode (classic karaoke)
+                        ctx.fillStyle = karColor;
+                    }
                 } else {
                     ctx.fillStyle = this.buildFillStyle(ctx, style, drawX, drawY, ww, lineH, scaleFactor);
                 }

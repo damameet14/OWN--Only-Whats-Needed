@@ -212,6 +212,19 @@ class OWNMainWindow:
                 btn.pack(side="right", padx=12, pady=8)
                 self.download_buttons.append(btn)
 
+            # Download ZIP button (opens browser to Google Drive link)
+            zip_url = model_info.get("zip_url")
+            if zip_url:
+                zip_btn = ctk.CTkButton(
+                    row, text="⬇ ZIP", font=("Inter", 9),
+                    fg_color="#352f1a", text_color="#ffe74d",
+                    border_width=1, border_color="#665c1e",
+                    hover_color="#23200f",
+                    width=55, height=24, corner_radius=6,
+                    command=lambda u=zip_url: webbrowser.open(u)
+                )
+                zip_btn.pack(side="right", padx=(0, 4), pady=8)
+
     def _download_model(self, model_name):
         """Trigger model download via API."""
         import requests
