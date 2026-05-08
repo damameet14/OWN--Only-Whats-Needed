@@ -342,10 +342,22 @@ class OWNMainWindow:
     def _on_upload_complete(self, success: bool):
         self.progress_bar.stop()
         self.progress_bar.configure(mode="determinate")
+        self.progress_bar.set(1.0 if success else 0)
         self.is_downloading = False
-        self._hide_progress()
+
+        if success:
+            self.progress_label.configure(text="✅ Model installed successfully!")
+        else:
+            self.progress_label.configure(text="❌ Failed to install model.")
+
         self.cancel_btn.configure(state="normal", text="✕ Cancel")
-        self._list_local_models()
+
+        # Hide progress bar after a short delay so the user sees the result
+        def _hide_and_refresh():
+            self.progress_frame.pack_forget()
+            self._list_local_models()
+
+        self.root.after(2500, _hide_and_refresh)
 
     def _poll_active_tasks(self):
         """Poll the server for any active tasks and update the progress bar.

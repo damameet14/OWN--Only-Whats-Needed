@@ -79,7 +79,7 @@ def run_nuitka():
 
 
 def _post_build_checks():
-    """Copy excluded files and verify the build output."""
+    """Copy excluded files, bundle Playwright browsers, and verify the build output."""
     dist_dir = "main.dist"
 
     # ── Copy bin/ executables (Nuitka skips .exe from --include-data-dir) ──
@@ -94,12 +94,16 @@ def _post_build_checks():
                 print(f"  Copying {fname} -> {dst_bin}/")
                 shutil.copy2(src_file, dst_file)
 
+    # ── Bundle Playwright Chromium ──
+    _bundle_playwright_browsers(dist_dir)
+
     checks = {
         "web/index.html": "Web frontend",
         "web/editor.html": "Editor page",
         "web/export_render.html": "Export render template",
         "bin/ffmpeg.exe": "FFmpeg binary",
         "bin/ffprobe.exe": "FFprobe binary",
+        "playwright-browsers": "Playwright Chromium browser",
         "fonts": "Fonts directory",
         "logo.ico": "Application icon",
     }
@@ -130,6 +134,49 @@ def _post_build_checks():
         print("\nAll post-build checks passed!")
     else:
         print("\nWARNING: Some checks failed - review the output above.")
+
+
+def _bundle_playwright_browsers(dist_dir: str):
+    """Copy Playwright's Chromium browser into the dist folder.
+
+    Searches for the browser in the standard ms-playwright cache directory.
+    This ensures the bundled app ships with Chromium so Playwright works
+    out-of-the-box without a runtime 'playwright install' step.
+    """
+    import glob
+
+    # Standard Playwright cache on Windows
+    pw_cache = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ms-playwright")
+    if not os.path.isdir(pw_cache):
+        print("  [SKIP]  Playwright cache not found at", pw_cache)
+        return
+
+    dest_browsers = os.path.join(dist_dir, "playwright-browsers")
+    os.makedirs(dest_browsers, exist_ok=True)
+
+    # Copy chromium-NNNN and ffmpeg-NNNN directories
+    copied_any = False
+    for pattern in ["chromium-*", "ffmpeg-*"]:
+        for src_dir in glob.glob(os.path.join(pw_cache, pattern)):
+            dir_name = os.path.basename(src_dir)
+            dst_dir = os.path.join(dest_browsers, dir_name)
+            if os.path.isdir(dst_dir):
+                print(f"  [OK]  {dir_name} already present")
+                copied_any = True
+                continue
+            print(f"  Copying {dir_name} -> playwright-browsers/  (this may take a minute)")
+            shutil.copytree(src_dir, dst_dir)
+            copied_any = True
+
+    if copied_any:
+        # Verify chrome.exe exists
+        chrome_exes = glob.glob(os.path.join(dest_browsers, "chromium-*", "chrome-win64", "chrome.exe"))
+        if chrome_exes:
+            print(f"  [OK]  Bundled Chromium: {os.path.basename(os.path.dirname(os.path.dirname(chrome_exes[0])))}")
+        else:
+            print("  [WARNING]  Chromium copied but chrome.exe not found at expected path")
+    else:
+        print("  [SKIP]  No chromium-* or ffmpeg-* directories found in Playwright cache")
 
 
 if __name__ == "__main__":

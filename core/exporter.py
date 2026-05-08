@@ -17,7 +17,19 @@ from PIL import Image, ImageFilter
 
 from models.subtitle import SubtitleTrack
 from core.video_utils import get_video_info, OUTPUT_FORMATS
-from server.config import FONTS_DIR, get_ffmpeg_path
+from server.config import FONTS_DIR, get_ffmpeg_path, PROJECT_ROOT
+
+
+def _get_bundled_chromium_path() -> str | None:
+    """Return path to the bundled chrome.exe, or None if not found."""
+    import glob
+    browsers_dir = os.path.join(PROJECT_ROOT, "playwright-browsers")
+    if not os.path.isdir(browsers_dir):
+        return None
+    matches = glob.glob(os.path.join(browsers_dir, "chromium-*", "chrome-win64", "chrome.exe"))
+    if matches:
+        return matches[0]
+    return None
 
 
 def _build_concat_filter(video_segments) -> Optional[str]:
@@ -186,10 +198,16 @@ async def export_video(
 
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                # Use bundled Chromium if available (bundled app), else default
+                launch_kwargs = {"headless": True}
+                bundled_chrome = _get_bundled_chromium_path()
+                if bundled_chrome:
+                    launch_kwargs["executable_path"] = bundled_chrome
+                    # Also set env var so Playwright's internal resolution works
+                    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(PROJECT_ROOT, "playwright-browsers")
+                browser = await p.chromium.launch(**launch_kwargs)
                 page = await browser.new_page()
                 
-                from server.config import PROJECT_ROOT
                 html_path = pathlib.Path(os.path.join(PROJECT_ROOT, "web", "export_render.html")).as_uri()
                 await page.goto(html_path)
                 
