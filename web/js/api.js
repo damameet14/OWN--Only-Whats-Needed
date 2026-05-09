@@ -75,11 +75,12 @@ async function startTranscription(projectId, options = {}) {
         const language = arguments[2] || 'hi';
         body = { engine, language };
     } else {
-        // New: startTranscription(id, { engine, language, model })
+        // New: startTranscription(id, { engine, language, model, words_per_line })
         body = {
             engine: options.engine || 'vosk',
             language: options.language || 'hi',
             ...(options.model ? { model: options.model } : {}),
+            ...(options.words_per_line ? { words_per_line: options.words_per_line } : {}),
         };
     }
     return apiRequest(`/api/projects/${projectId}/transcribe`, {

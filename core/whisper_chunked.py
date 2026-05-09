@@ -1,7 +1,12 @@
-"""Chunked Whisper transcription with RAM management."""
+"""Chunked Whisper transcription with RAM management.
+
+Uses fixed 20-second chunks processed in batches of 4 for efficient
+memory usage and throughput. No silence detection — simple fixed-length splits.
+"""
 
 from __future__ import annotations
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -10,16 +15,14 @@ import asyncio
 from typing import AsyncGenerator, Optional, Callable
 
 from models.subtitle import WordTiming
-from core.silence_detector import detect_silence_boundaries
-from server.config import (
-    WHISPER_MAX_CHUNK_DURATION,
-    WHISPER_MIN_SILENCE_DURATION,
-    WHISPER_SILENCE_THRESHOLD,
-    get_ffmpeg_path,
-)
+from server.config import get_ffmpeg_path
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+CHUNK_DURATION = 20.0   # seconds per chunk
+BATCH_SIZE = 4          # chunks processed per batch
 
 
 async def transcribe_whisper_chunked(
@@ -29,25 +32,14 @@ async def transcribe_whisper_chunked(
     language: str = "hi",
     device: str = "cpu",
     compute_type: str = "int8",
-    max_chunk_duration: float = WHISPER_MAX_CHUNK_DURATION,
     progress_callback: Optional[Callable[[int, str], None]] = None,
-    vad_filter: bool = False,  # Disabled by default - can be too aggressive
-    chunk_timeout: float = 300.0,  # Timeout per chunk in seconds
+    vad_filter: bool = False,
+    chunk_timeout: float = 300.0,
 ) -> AsyncGenerator[tuple[int, str, Optional[list[WordTiming]]], None]:
-    """Async generator that transcribes using Whisper with chunked processing.
+    """Async generator that transcribes using Whisper with fixed-length chunked processing.
 
-    Processes audio in ~30-second chunks at silence boundaries to manage RAM usage.
-    The Whisper model is loaded once and reused across chunks.
-
-    Args:
-        video_path: Path to video file
-        model_path: Path to Whisper model directory (if None, uses model_size with default cache)
-        model_size: Model size name for faster-whisper (used if model_path is None)
-        language: Language code
-        device: Device to run on ("cpu" or "cuda")
-        compute_type: Compute type ("int8", "float16", etc.)
-        max_chunk_duration: Maximum chunk duration in seconds
-        progress_callback: Optional callback for progress updates
+    Splits audio into exact 20-second chunks and processes them in batches of 4.
+    The Whisper model is loaded once and reused across all chunks.
 
     Yields:
         (progress_percent, status_message, word_timings_or_none)
@@ -62,7 +54,6 @@ async def transcribe_whisper_chunked(
         return
 
     def _update_progress(percent: int, message: str) -> None:
-        """Internal helper to update progress and optionally call callback."""
         logger.debug(f"[WHISPER] Progress: {percent}% - {message}")
         if progress_callback is not None:
             progress_callback(percent, message)
@@ -79,21 +70,17 @@ async def transcribe_whisper_chunked(
         yield (0, f"Error extracting audio: {e}", None)
         return
 
-    # Step 2 — detect silence boundaries (10%)
-    logger.info("[WHISPER] Step 2: Detecting silence boundaries...")
-    yield (15, "Detecting silence for chunking…", None)
-    _update_progress(15, "Detecting silence for chunking…")
+    # Step 2 — get audio duration and compute fixed chunks (10%)
+    logger.info("[WHISPER] Step 2: Computing fixed-length chunks...")
+    yield (10, "Splitting audio into chunks…", None)
+    _update_progress(10, "Splitting audio into chunks…")
     try:
-        chunks = await detect_silence_boundaries(
-            wav_path,
-            min_silence_duration=WHISPER_MIN_SILENCE_DURATION,
-            silence_threshold=WHISPER_SILENCE_THRESHOLD,
-            max_chunk_duration=max_chunk_duration,
-        )
-        logger.info(f"[WHISPER] Detected {len(chunks)} chunks: {chunks[:3]}...")
+        duration = await asyncio.to_thread(_get_audio_duration, wav_path)
+        chunks = _compute_fixed_chunks(duration, CHUNK_DURATION)
+        logger.info(f"[WHISPER] Audio duration: {duration:.2f}s, split into {len(chunks)} chunks of {CHUNK_DURATION}s")
     except Exception as e:
-        logger.error(f"[WHISPER] Silence detection failed: {e}", exc_info=True)
-        yield (0, f"Error detecting silence: {e}", None)
+        logger.error(f"[WHISPER] Chunk computation failed: {e}", exc_info=True)
+        yield (0, f"Error computing chunks: {e}", None)
         try:
             os.remove(wav_path)
         except OSError:
@@ -127,74 +114,72 @@ async def transcribe_whisper_chunked(
             pass
         return
 
-    # Step 4 — transcribe chunks (75%)
-    logger.info(f"[WHISPER] Step 4: Transcribing {len(chunks)} chunks...")
-    yield (25, f"Transcribing {len(chunks)} chunks…", None)
-    _update_progress(25, f"Transcribing {len(chunks)} chunks…")
+    # Step 4 — transcribe in batches of BATCH_SIZE chunks (75%)
+    total_chunks = len(chunks)
+    total_batches = math.ceil(total_chunks / BATCH_SIZE)
+    logger.info(f"[WHISPER] Step 4: Transcribing {total_chunks} chunks in {total_batches} batches of {BATCH_SIZE}...")
+    yield (25, f"Transcribing {total_chunks} chunks in {total_batches} batches…", None)
+    _update_progress(25, f"Transcribing {total_chunks} chunks…")
 
     all_words: list[WordTiming] = []
-    total_chunks = len(chunks)
 
-    for chunk_idx, (chunk_start, chunk_end) in enumerate(chunks):
-        # Calculate progress: 25% base + up to 70% for chunks (leaving 5% for finalization)
-        chunk_progress = 25 + int(((chunk_idx + 1) / total_chunks) * 70)
-        logger.info(f"[WHISPER] Processing chunk {chunk_idx + 1}/{total_chunks} ({chunk_start:.2f}s - {chunk_end:.2f}s)...")
-        yield (chunk_progress, f"Processing chunk {chunk_idx + 1}/{total_chunks}…", None)
-        _update_progress(chunk_progress, f"Processing chunk {chunk_idx + 1}/{total_chunks}…")
+    for batch_idx in range(total_batches):
+        batch_start = batch_idx * BATCH_SIZE
+        batch_end = min(batch_start + BATCH_SIZE, total_chunks)
+        batch_chunks = chunks[batch_start:batch_end]
 
-        # Extract chunk audio
-        try:
-            chunk_wav = await asyncio.to_thread(
-                _extract_chunk_audio,
-                wav_path,
-                chunk_start,
-                chunk_end,
-            )
-            logger.debug(f"[WHISPER] Chunk audio extracted to: {chunk_wav}")
-        except Exception as e:
-            logger.error(f"[WHISPER] Chunk {chunk_idx + 1} audio extraction failed: {e}", exc_info=True)
-            continue
+        batch_progress = 25 + int(((batch_idx + 1) / total_batches) * 70)
+        logger.info(f"[WHISPER] Processing batch {batch_idx + 1}/{total_batches} (chunks {batch_start + 1}-{batch_end})...")
+        yield (batch_progress, f"Batch {batch_idx + 1}/{total_batches} — chunks {batch_start + 1}–{batch_end}…", None)
+        _update_progress(batch_progress, f"Batch {batch_idx + 1}/{total_batches}")
 
-        # Transcribe chunk
-        try:
-            chunk_words = await asyncio.wait_for(
-                asyncio.to_thread(
-                    _transcribe_chunk,
-                    model,
-                    chunk_wav,
-                    language,
-                    vad_filter,
-                ),
-                timeout=chunk_timeout,
-            )
-            logger.info(f"[WHISPER] Chunk {chunk_idx + 1} transcribed: {len(chunk_words)} words")
-        except asyncio.TimeoutError:
-            logger.error(f"[WHISPER] Chunk {chunk_idx + 1} transcription timed out after {chunk_timeout}s")
+        # Extract all chunk audio files for this batch
+        chunk_wavs = []
+        chunk_offsets = []
+        for chunk_start, chunk_end in batch_chunks:
             try:
-                os.remove(chunk_wav)
-            except OSError:
-                pass
-            continue
-        except Exception as e:
-            logger.error(f"[WHISPER] Chunk {chunk_idx + 1} transcription failed: {e}", exc_info=True)
+                chunk_wav = await asyncio.to_thread(
+                    _extract_chunk_audio, wav_path, chunk_start, chunk_end,
+                )
+                chunk_wavs.append(chunk_wav)
+                chunk_offsets.append(chunk_start)
+            except Exception as e:
+                logger.error(f"[WHISPER] Chunk audio extraction failed ({chunk_start:.1f}s-{chunk_end:.1f}s): {e}", exc_info=True)
+                chunk_wavs.append(None)
+                chunk_offsets.append(chunk_start)
+
+        # Transcribe each chunk in the batch sequentially
+        for i, (chunk_wav, chunk_offset) in enumerate(zip(chunk_wavs, chunk_offsets)):
+            if chunk_wav is None:
+                continue
+
+            chunk_num = batch_start + i + 1
             try:
-                os.remove(chunk_wav)
-            except OSError:
-                pass
-            continue
+                chunk_words = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _transcribe_chunk, model, chunk_wav, language, vad_filter,
+                    ),
+                    timeout=chunk_timeout,
+                )
+                logger.info(f"[WHISPER] Chunk {chunk_num}/{total_chunks} transcribed: {len(chunk_words)} words")
+            except asyncio.TimeoutError:
+                logger.error(f"[WHISPER] Chunk {chunk_num} timed out after {chunk_timeout}s")
+                continue
+            except Exception as e:
+                logger.error(f"[WHISPER] Chunk {chunk_num} transcription failed: {e}", exc_info=True)
+                continue
+            finally:
+                try:
+                    os.remove(chunk_wav)
+                except OSError:
+                    pass
 
-        # Adjust timestamps by chunk offset
-        for word in chunk_words:
-            word.start_time += chunk_start
-            word.end_time += chunk_start
+            # Adjust timestamps by chunk offset
+            for word in chunk_words:
+                word.start_time += chunk_offset
+                word.end_time += chunk_offset
 
-        all_words.extend(chunk_words)
-
-        # Clean up chunk wav
-        try:
-            os.remove(chunk_wav)
-        except OSError:
-            pass
+            all_words.extend(chunk_words)
 
     # Cleanup main wav
     try:
@@ -203,7 +188,7 @@ async def transcribe_whisper_chunked(
     except OSError:
         pass
 
-    # Finalization step (5%)
+    # Finalization
     logger.info(f"[WHISPER] Finalizing transcription...")
     yield (98, "Finalizing transcription…", None)
     _update_progress(98, "Finalizing transcription…")
@@ -211,6 +196,47 @@ async def transcribe_whisper_chunked(
     logger.info(f"[WHISPER] COMPLETE: Total {len(all_words)} words transcribed")
     yield (100, "Transcription complete.", all_words)
     _update_progress(100, "Transcription complete.")
+
+
+# ── Helper functions ──────────────────────────────────────────────────────────
+
+def _get_audio_duration(wav_path: str) -> float:
+    """Get duration of a WAV file using ffprobe."""
+    cmd = [
+        get_ffmpeg_path().replace("ffmpeg", "ffprobe"),
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        wav_path,
+    ]
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed: {result.stderr.decode(errors='replace')}")
+
+    import json
+    data = json.loads(result.stdout)
+    return float(data.get("format", {}).get("duration", 0))
+
+
+def _compute_fixed_chunks(duration: float, chunk_duration: float) -> list[tuple[float, float]]:
+    """Split duration into fixed-length chunks.
+
+    Returns list of (start_time, end_time) tuples.
+    The last chunk may be shorter than chunk_duration.
+    """
+    chunks = []
+    start = 0.0
+    while start < duration:
+        end = min(start + chunk_duration, duration)
+        if end - start > 0.1:  # Skip tiny residual chunks
+            chunks.append((start, end))
+        start = end
+    return chunks
 
 
 def _extract_audio(video_path: str) -> str:
@@ -278,14 +304,32 @@ def _extract_chunk_audio(wav_path: str, start_time: float, end_time: float) -> s
 def _transcribe_chunk(model, wav_path: str, language: str, vad_filter: bool = False) -> list[WordTiming]:
     """Transcribe a single audio chunk with Whisper."""
     logger.debug(f"[WHISPER] _transcribe_chunk: wav_path={wav_path}, language={language}, vad_filter={vad_filter}")
+
+    # Map 'multi'/'auto' to None for faster-whisper auto-detection
+    effective_language = language
+    if language in ("multi", "auto", ""):
+        effective_language = None
+        logger.info(f"[WHISPER] _transcribe_chunk: auto-detect mode (language={language!r} -> None)")
+
+    # Build transcription kwargs
+    transcribe_kwargs = {
+        "word_timestamps": True,
+        "beam_size": 5,
+        "vad_filter": vad_filter,
+        "task": "transcribe",  # Always transcribe, never translate
+    }
+
+    if effective_language is not None:
+        transcribe_kwargs["language"] = effective_language
+
+    # Prompt to preserve original language words (prevents translation to English)
+    transcribe_kwargs["initial_prompt"] = (
+        "Transcribe exactly as spoken. Preserve all original language words. "
+        "Do not translate any words into English or any other language."
+    )
+
     try:
-        segments, info = model.transcribe(
-            wav_path,
-            language=language,
-            word_timestamps=True,
-            beam_size=5,
-            vad_filter=vad_filter,
-        )
+        segments, info = model.transcribe(wav_path, **transcribe_kwargs)
         logger.debug(f"[WHISPER] _transcribe_chunk: model.transcribe returned, info={info}")
 
         words: list[WordTiming] = []

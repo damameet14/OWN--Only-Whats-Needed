@@ -150,7 +150,8 @@
             <div>
                 <label class="text-sm font-medium text-slate-300 mb-1 block">Language</label>
                 <select id="modal-language" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
-                    <option value="hi" selected>Hindi (हिन्दी)</option>
+                    <option value="auto" selected>🌐 Auto Detect (Multi-Language)</option>
+                    <option value="hi">Hindi (हिन्दी)</option>
                     <option value="en">English</option>
                     <option value="bn">Bengali (বাংলা)</option>
                     <option value="ta">Tamil (தமிழ்)</option>
@@ -166,14 +167,14 @@
                     <option value="ne">Nepali (नेपाली)</option>
                     <option value="sa">Sanskrit (संस्कृत)</option>
                     <option value="sd">Sindhi (سنڌي)</option>
-                    <option value="multi">Auto-detect (Whisper)</option>
                 </select>
             </div>
             <div>
-                <label class="text-sm font-medium text-slate-300 mb-1 block">Engine</label>
-                <div class="w-full bg-slate-800/50 border border-slate-700/50 rounded-lg px-4 py-2 text-slate-300 text-sm cursor-not-allowed">
-                    Whisper (Large v3)
-                </div>
+                <label class="text-sm font-medium text-slate-300 mb-1 block">Whisper Model</label>
+                <select id="modal-model" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-primary focus:border-transparent">
+                    <option value="">Loading models...</option>
+                </select>
+                <p id="modal-model-status" class="text-[10px] text-slate-500 mt-1"></p>
             </div>
             <div>
                 <label class="text-sm font-medium text-slate-300 mb-1 block">Words Per Line: <span id="upload-wpl-val">4</span></label>

@@ -13,26 +13,75 @@ from server.config import get_ffprobe_path
 class VideoInfo:
     """Metadata about a video file."""
     duration: float       # seconds
-    width: int
-    height: int
+    width: int            # effective displayed width (rotation-aware)
+    height: int           # effective displayed height (rotation-aware)
     fps: float
     codec: str
     audio_codec: str
     file_path: str
+    rotation: int = 0     # rotation angle in degrees (0, 90, 180, 270)
 
     @property
     def resolution(self) -> str:
         return f"{self.width}×{self.height}"
 
+    @property
+    def is_portrait(self) -> bool:
+        return self.height > self.width
+
+
+def _detect_rotation(video_stream: dict) -> int:
+    """Detect rotation from ffprobe stream data.
+
+    Checks:
+    1. side_data_list → displaymatrix → rotation
+    2. tags → rotate
+    Returns normalised angle: 0, 90, 180, or 270.
+    """
+    rotation = 0
+
+    # Method 1: side_data_list (modern containers)
+    side_data = video_stream.get("side_data_list", [])
+    for sd in side_data:
+        if "rotation" in sd:
+            rotation = int(float(sd["rotation"]))
+            break
+        if sd.get("side_data_type") == "Display Matrix":
+            rotation = int(float(sd.get("rotation", 0)))
+            break
+
+    # Method 2: tags.rotate (older containers / MOV)
+    if rotation == 0:
+        tags = video_stream.get("tags", {})
+        rotate_tag = tags.get("rotate", tags.get("ROTATE", "0"))
+        try:
+            rotation = int(float(rotate_tag))
+        except (ValueError, TypeError):
+            rotation = 0
+
+    # Normalise to 0/90/180/270
+    rotation = rotation % 360
+    if rotation < 0:
+        rotation += 360
+    if rotation not in (0, 90, 180, 270):
+        rotation = round(rotation / 90) * 90 % 360
+
+    return rotation
+
 
 def get_video_info(path: str) -> VideoInfo:
-    """Probe a video file and return its metadata."""
+    """Probe a video file and return its metadata.
+
+    The returned width/height reflect the effective displayed dimensions,
+    i.e. after applying any rotation metadata.
+    """
     cmd = [
         get_ffprobe_path(),
         "-v", "quiet",
         "-print_format", "json",
         "-show_format",
         "-show_streams",
+        "-show_entries", "stream=width,height,codec_type,codec_name,r_frame_rate,side_data_list,tags",
         path,
     ]
     result = subprocess.run(
@@ -61,9 +110,19 @@ def get_video_info(path: str) -> VideoInfo:
     if video_stream is None:
         raise RuntimeError("No video stream found in file.")
 
-    width = int(video_stream.get("width", 0))
-    height = int(video_stream.get("height", 0))
+    coded_width = int(video_stream.get("width", 0))
+    coded_height = int(video_stream.get("height", 0))
     codec = video_stream.get("codec_name", "unknown")
+
+    # Detect rotation from metadata
+    rotation = _detect_rotation(video_stream)
+
+    # Swap dimensions for 90°/270° rotation because FFmpeg's decoder
+    # auto-rotates the raw frame output to match the display orientation.
+    if rotation in (90, 270):
+        width, height = coded_height, coded_width
+    else:
+        width, height = coded_width, coded_height
 
     # FPS from r_frame_rate (e.g. "30000/1001")
     fps_str = video_stream.get("r_frame_rate", "30/1")
@@ -80,6 +139,7 @@ def get_video_info(path: str) -> VideoInfo:
         codec=codec,
         audio_codec=audio_codec,
         file_path=path,
+        rotation=rotation,
     )
 
 

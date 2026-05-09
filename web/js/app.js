@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjects();
     initSearch();
     loadUser();
+    loadUploadModels();
 });
 
 
@@ -83,12 +84,14 @@ async function uploadAndTranscribe(file) {
     const title = document.getElementById('modal-title').value || file.name;
     const language = document.getElementById('modal-language').value;
     const engine = 'whisper';
+    const selectedModel = document.getElementById('modal-model')?.value || '';
     const wordsPerLine = parseInt(document.getElementById('upload-wpl')?.value || '4');
 
     try {
         const installedModels = await getInstalledModels();
-        if (installedModels.length === 0) {
-            showToast('No AI models installed! Please download a model from the Desktop App or System Tray first.', 'error');
+        const whisperModels = installedModels.filter(m => m.engine === 'whisper');
+        if (whisperModels.length === 0) {
+            showToast('No Whisper models installed! Please download a model from the Desktop App or System Tray first.', 'error');
             return;
         }
     } catch (err) {
@@ -110,7 +113,7 @@ async function uploadAndTranscribe(file) {
         statusEl.textContent = 'Starting transcription...';
 
         // Step 2: Start transcription
-        const { task_id } = await startTranscription(project.id, { engine, language, words_per_line: wordsPerLine });
+        const { task_id } = await startTranscription(project.id, { engine, language, model: selectedModel || undefined, words_per_line: wordsPerLine });
         
         // Step 3: Watch progress
         watchProgress(task_id,
@@ -139,6 +142,55 @@ async function uploadAndTranscribe(file) {
         statusEl.textContent = `Upload failed: ${err.message}`;
         showToast(err.message, 'error');
         setTimeout(() => progressDiv.classList.add('hidden'), 3000);
+    }
+}
+
+
+// ── Upload Model Selector ────────────────────────────────────────────────────
+
+async function loadUploadModels() {
+    const modelSelect = document.getElementById('modal-model');
+    const statusEl = document.getElementById('modal-model-status');
+    if (!modelSelect) return;
+
+    try {
+        const available = await getAvailableModels();
+        const whisperModels = available.filter(m => m.engine === 'whisper');
+
+        if (whisperModels.length === 0) {
+            modelSelect.innerHTML = '<option value="">No Whisper models available</option>';
+            if (statusEl) statusEl.textContent = 'Please install a Whisper model first.';
+            return;
+        }
+
+        modelSelect.innerHTML = '';
+        let hasInstalled = false;
+
+        for (const model of whisperModels) {
+            const opt = document.createElement('option');
+            opt.value = model.name;
+            if (model.installed) {
+                opt.textContent = `${model.label.replace(/\s*—.*$/, '')} ✓`;
+                hasInstalled = true;
+            } else {
+                opt.textContent = `${model.label.replace(/\s*—.*$/, '')} (not installed)`;
+                opt.disabled = true;
+            }
+            modelSelect.appendChild(opt);
+        }
+
+        const firstInstalled = whisperModels.find(m => m.installed);
+        if (firstInstalled) {
+            modelSelect.value = firstInstalled.name;
+        }
+
+        if (statusEl) {
+            statusEl.textContent = hasInstalled ? '' : '⚠ No models installed. Please download one first.';
+            statusEl.className = hasInstalled ? 'text-[10px] text-slate-500 mt-1' : 'text-[10px] text-amber-400 mt-1';
+        }
+    } catch (err) {
+        console.error('Failed to load models for upload:', err);
+        modelSelect.innerHTML = '<option value="">Failed to load models</option>';
     }
 }
 
