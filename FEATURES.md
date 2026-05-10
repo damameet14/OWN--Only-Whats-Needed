@@ -1,119 +1,75 @@
-# 🌟 OWN: Detailed Features Documentation
+# OWN (Only What's Needed) - User Guide
 
-OWN (Only What's Needed) is a comprehensive, offline-first application for AI-powered video transcription, subtitle styling, and export. This document provides an in-depth look at all the features available in the application.
+Welcome to **OWN**! This guide will help you understand all the features of the application and how to use them to auto-caption your videos easily and completely offline.
 
----
+> **Note:** Some screen names and screens within the app are currently placeholders and will be fully implemented in later versions.
 
-## 🎙️ 1. AI Transcription Engine
+## 🌟 Features Overview
 
-OWN utilizes state-of-the-art speech recognition to generate accurate subtitles locally.
+### 1. AI Video Transcription
+* **Completely Offline:** We use advanced AI models (like Whisper) that run completely offline on your computer. No internet is required to transcribe!
+* **Word-Level Timestamps:** Every single word is tracked with its exact start and end time, allowing for precise editing and animations.
+* **Handles Long Videos:** The app automatically splits audio into manageable chunks to ensure your computer doesn't run out of memory during processing.
 
-### Whisper Integration
-- **Local Processing**: Powered by `faster-whisper` (CTranslate2), ensuring fast inference on CPUs without requiring a GPU or internet connection.
-- **Multiple Models**: 
-  - `faster-whisper-large-v3-turbo`: The default model. Balances exceptional accuracy with faster processing speeds.
-  - `faster-whisper-large-v3`: The largest model for maximum accuracy on complex audio.
-- **Chunked Processing**: To handle long videos and manage RAM usage, audio is split into smaller chunks (default: 30 seconds) based on silence detection.
-- **Silence Detection**: Uses `FFmpeg` to detect precise silence boundaries (`-40dB` threshold), ensuring that audio splits don't cut off words mid-sentence.
-- **Word-Level Timestamps**: Every transcribed word receives exact start and end times, enabling advanced features like Karaoke animations.
+### 2. Multi-Language Support
+You can transcribe videos spoken in various languages, including over 15 Indian languages (Hindi, Bengali, Tamil, Telugu, Marathi, etc.).
 
-### Language Support
-- **15+ Supported Languages**: English, Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia, Assamese, Urdu, Nepali, Sanskrit, and Sindhi.
-- **Auto-Detection**: Whisper can automatically identify the spoken language in the video if not explicitly set by the user.
+**How to use Multi-Language Transcription:**
+* During video upload, select the **Whisper Large v3** model (do not use the Turbo model for the best multi-language accuracy).
+* In the Language dropdown, select **🌐 Auto Detect**.
+* *Tip:* If the Auto Detect option does not give you the desired output, manually select the specific Indian language you have spoken from the dropdown list.
+* **Important Note:** Processing can take time depending on your computer's speed. A video of over 1 minute can take up to 8-10 minutes for transcription with the large model, so please be patient!
 
----
+### 3. Indic Transliteration
+Convert subtitles from native Indian scripts (like Devanagari, Bengali, Tamil, etc.) into readable English/Roman letters. Great for audiences who prefer reading native languages in the English alphabet.
 
-## 🔤 2. Indic Transliteration
+**How to use Transliteration:**
+* Use the Transliteration option in the editor after your native-script subtitles are generated.
+* *Note:* Sometimes the transliteration process might not work properly on the first try. If that happens, simply **close the app and try again**.
 
-For creators targeting pan-Indian audiences or users who prefer reading native scripts in the Roman alphabet.
+### 4. Advanced Subtitle Styling
+Make your captions pop with broadcast-quality styling!
+* **Typography:** Choose from over 100 bundled high-quality fonts. Adjust font size, weight (boldness), italics, and uppercase/lowercase styling. You can also upload your own font!
+* **Colors & Gradients:** Use solid colors or create beautiful linear and radial gradients with dual colors.
+* **Outlines & Shadows:** Add strokes (outlines) and drop shadows to separate text from complex video backgrounds.
+* **Word Backgrounds:** Toggle a rectangular background behind each word, mimicking popular social media caption styles.
+* **Layout & Spacing:** Fine-tune letter spacing, line height, overall opacity, and even rotate the text.
+* **Highlights:** Mark specific words as "Highlighted" or "Spotlighted" to emphasize key points in your speech.
 
-- **Indic to Roman**: Converts native scripts (like Devanagari, Bengali, Tamil) into readable Roman/English letters.
-- **Dual Engine Architecture**:
-  1. **Rule-Based Engine**: Uses the `indic-transliteration` library for fast, standard phonetic conversion (e.g., ITRANS format).
-  2. **LLM-Powered Engine**: Supports optional integration with local Large Language Models (e.g., `Gemma 4 GGUF` via `llama-cpp-python`). This allows for context-aware transliteration that handles conversational nuances better than strict phonetic rules.
+### 5. Dynamic Animations
+Bring your subtitles to life with smooth motion design.
+* **Line Animations:** Choose how subtitle blocks enter the screen (Fade, Slide Up/Down, Pop/Scale) and control the animation duration.
+* **Word Animations:** Use the **Typewriter** effect (words appear one by one) or the **Karaoke** effect (words are highlighted sequentially exactly when spoken). You can even customize the Karaoke highlight colors.
 
----
+### 6. Timeline & Synchronization Editor
+Manually fix any misheard words or adjust the exact timing of the captions on the screen using the interactive editor.
+* **Visual Waveform:** See the audio waveform alongside your video for precise timing adjustments.
+* **Drag and Drop Timing:** Drag the edges of the blocks on the bottom timeline to adjust exactly when a subtitle appears or disappears.
+* **Repositioning:** Drag the subtitle box directly on the video player preview to move it, or use the exact X/Y sliders.
+* **Video Trimming:** Select a portion of the timeline to trim your video; subtitles will automatically adjust to the cut. *(Note: Not fully functional in this version)*
+* **Split & Merge:** Break long subtitles into shorter ones exactly where you want them, or delete unwanted segments. *(Note: Not fully functional in this version)*
+* **Sentence vs. Word Mode:** Toggle between editing full sentences block-by-block or adjusting individual words.
 
-## 🎨 3. Advanced Subtitle Styling
+### 7. Desktop App & Background Tasks
+* **System Tray integration:** The app runs smoothly in your Windows system tray. You can close the main window and your video exports will safely continue running in the background.
+* **Task Management:** Cancel ongoing transcriptions, renders, or model downloads at any time without locking up your computer.
 
-The application features a rich, professional-grade styling engine that mimics broadcast-quality software. 
-
-### Global & Segment-Level Control
-Styles can be applied globally to all subtitles or overridden on a per-segment basis for emphasis.
-
-### Typography
-- **Fonts**: Over 100 bundled, high-quality open-source fonts.
-- **Customization**: Controls for Font Size, Font Weight, Font Style (Italic/Normal), and Text Transform (Uppercase/Lowercase).
-
-### Colors & Fills
-- **Solid Fill**: Standard solid color hex picker.
-- **Gradient Fill**: Linear and Radial gradients with dual color selection and configurable gradient angles.
-
-### Outlines (Stroke) & Shadows
-- **Stroke**: Toggleable outline with configurable color and width to separate text from complex backgrounds.
-- **Drop Shadow**: Toggleable shadow with adjustable color, blur radius, and X/Y offset values for depth.
-
-### Backgrounds
-- **Word Background**: Toggleable rectangular background per-word with adjustable color, mimicking popular social media caption styles.
-
-### Layout & Spacing
-- **Letter & Word Spacing**: Fine-tune the typography kerning.
-- **Line Height**: Adjust spacing between multi-line subtitles.
-- **Opacity**: Global text opacity control.
-- **Rotation**: Rotate the subtitle text blocks.
-
-### Markers & Overrides
-- Mark specific words as **Highlighted** or **Spotlighted**, applying distinct style presets to emphasize key points in the speech.
+### 8. Video Export & SRT Download
+* **Video Export:** Once you are happy with the preview, click "Export Video". Your video will be rendered locally to MP4 or WebM with the subtitles hardcoded perfectly.
+* **SRT Download:** Need the subtitles for YouTube or Premiere Pro? Just download the standard `.srt` file containing the raw text and timestamps.
 
 ---
 
-## ✨ 4. Dynamic Animations
+## 📥 Downloading AI Models
 
-Bring subtitles to life with motion design. Animations are handled via CSS transitions for smooth, high-framerate playback.
+To use the app, you need to download the AI models. You can either download them directly inside the app, or manually download the ZIP files if you prefer.
 
-### Line Animations (Per-Segment)
-- **Fade**: Subtitle gently fades in.
-- **Slide Up / Down**: Subtitle enters the screen via a vertical slide.
-- **Pop / Scale**: Subtitle scales up dynamically on entry.
-- **Duration Control**: Configurable animation speed (e.g., 0.3s).
+**Manual ZIP Download Links:**
+* [Whisper Large v3 Model (Recommended for Multi-Language)](https://drive.google.com/uc?export=download&id=1HF7WJodZDrVzTq0PHdgtT9G2pAprvLhL) - ~3 GB
+* [Whisper Large v3 Turbo Model (Faster, default for English)](https://drive.google.com/uc?export=download&id=1dIcOkDQmQ6ga_VhUNHqm3_Fb28PveHQZ) - ~800 MB
+* [Gemma Transliteration Model (Required for LLM Transliteration)](https://drive.google.com/uc?export=download&id=1yuV1vUeyvcA1AVEeJjwoECIRMsPcGyTx) - ~1.5 GB
 
-### Word Animations
-- **Typewriter**: Words appear sequentially, mimicking a typing effect.
-- **Karaoke**: Words are highlighted sequentially based on their exact timestamps.
-  - *Karaoke Customization*: Configure the highlight color and an optional trailing background color.
-
----
-
-## ✂️ 5. Timeline & Synchronization Editor
-
-A fully interactive UI for precise timing adjustments.
-
-- **Visual Waveform**: Displays the audio waveform alongside the video timeline.
-- **Drag and Drop Adjustment**: Visually drag segment boundaries on the timeline to tweak start and end times.
-- **Positioning**: Drag and drop the subtitle box directly on the video preview, or use precise normalized X/Y sliders.
-- **Video Trimming**: Select a range on the timeline and trim the video; subtitles automatically adjust their timestamps to match the cut.
-- **Segment Splitting/Merging**: Split a subtitle block exactly at the playhead if it's too long, or delete unwanted segments.
-- **Sentence vs. Word Mode**: Toggle between editing full sentences block-by-block or adjusting words per line.
-
----
-
-## 🎬 6. Video Export & Rendering Pipeline
-
-OWN includes a robust, local rendering engine that guarantees pixel-perfect output.
-
-- **Headless Playwright Rendering**: Instead of relying on complex FFmpeg text filters, the app uses a headless Chromium browser to render the exact CSS and HTML of the subtitles frame-by-frame. This guarantees that what you see in the editor is exactly what is exported.
-- **FFmpeg Integration**: The browser frames are piped directly into FFmpeg to be multiplexed with the original video and audio streams.
-- **Formats**: Export to popular formats like MP4 (H.264) and WebM.
-- **SRT Export**: Download a standard `.srt` file containing the raw text and timestamps for use in other software like Premiere Pro or YouTube.
-
----
-
-## 🖥️ 7. Desktop Integration & Offline Architecture
-
-Designed from the ground up to respect user privacy and system resources.
-
-- **100% Offline**: No API keys, no cloud processing, no data harvesting. All transcription and rendering happen on the local machine.
-- **Model Sideloading**: Download AI models as ZIP files and upload them locally. Great for restricted networks or offline editing bays.
-- **System Tray App**: The app runs unobtrusively in the Windows system tray (`pystray`), allowing users to close the main window without killing background export tasks.
-- **Background Task Management**: Cancel ongoing transcription, rendering, or model downloads at any time without locking up the UI.
-- **Bundled Executable**: Packaged with `Nuitka` into a standalone Windows installer. FFmpeg, Python, Playwright, and all dependencies are bundled inside—no technical setup required for end users.
+**How to install manually:**
+1. Download the ZIP file from the links above.
+2. In the app, choose the option to upload or install a local model.
+3. Select the downloaded ZIP file and wait for it to install.
