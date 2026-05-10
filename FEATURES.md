@@ -41,7 +41,7 @@ Bring your subtitles to life with smooth motion design.
 * **Line Animations:** Choose how subtitle blocks enter the screen (Fade, Slide Up/Down, Pop/Scale) and control the animation duration.
 * **Word Animations:** Use the **Typewriter** effect (words appear one by one) or the **Karaoke** effect (words are highlighted sequentially exactly when spoken). You can even customize the Karaoke highlight colors.
 
-### 6. Timeline & Synchronization Editor
+### 6. Timeline & Synchronization Editor (Not fully functional in this version)
 Manually fix any misheard words or adjust the exact timing of the captions on the screen using the interactive editor.
 * **Visual Waveform:** See the audio waveform alongside your video for precise timing adjustments.
 * **Drag and Drop Timing:** Drag the edges of the blocks on the bottom timeline to adjust exactly when a subtitle appears or disappears.
