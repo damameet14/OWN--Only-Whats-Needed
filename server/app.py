@@ -260,7 +260,7 @@ async def _run_transcription(task_id: str, project: dict, language: str, model_n
         video_path = project["video_path"]
         logger.info(f"[_run_transcription] video_path={video_path!r}, exists={os.path.exists(video_path)}")
 
-        from core.whisper_chunked import transcribe_whisper_chunked
+        from core.whisper_transcriber import transcribe_whisper
 
         # Find the whisper model to use
         model_path = None
@@ -293,7 +293,7 @@ async def _run_transcription(task_id: str, project: dict, language: str, model_n
 
         logger.info(f"[_run_transcription] WHISPER model_path={model_path!r}, model_size={model_size!r}")
 
-        gen = transcribe_whisper_chunked(
+        gen = transcribe_whisper(
             video_path,
             model_path=model_path,
             model_size=model_size,
