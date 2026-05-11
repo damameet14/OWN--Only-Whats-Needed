@@ -106,7 +106,10 @@ async def export_video(
                     temp_preprocessed.name
                 ]
                 
-                await asyncio.to_thread(subprocess.run, concat_cmd, check=True)
+                await asyncio.to_thread(
+                    subprocess.run, concat_cmd, check=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                )
                 source_video_path = temp_preprocessed.name
                 
                 info = await asyncio.to_thread(get_video_info, source_video_path)

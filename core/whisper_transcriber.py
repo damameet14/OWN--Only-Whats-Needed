@@ -145,7 +145,11 @@ def _extract_audio(video_path: str) -> str:
         "-c:a", "pcm_s16le",
         tmp.name,
     ]
-    result = subprocess.run(cmd, capture_output=True)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg failed: {result.stderr.decode()}")
     return tmp.name
