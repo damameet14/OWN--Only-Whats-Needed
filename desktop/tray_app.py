@@ -56,6 +56,7 @@ class OWNTrayApp:
             )),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Server Running", None, enabled=False),
+            pystray.MenuItem("View Logs", self._view_logs),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._quit),
         )
@@ -117,6 +118,22 @@ class OWNTrayApp:
                 self.main_window.root.after(0, self.main_window.root.quit)
             except Exception:
                 pass
+
+    def _view_logs(self, icon=None, item=None):
+        """Open the application log file in the default text editor."""
+        log_file = os.path.join(_PROJECT_ROOT, "data", "own_app.log")
+        if not os.path.isfile(log_file):
+            self._show_notification("No log file found yet.")
+            return
+        try:
+            if sys.platform == "win32":
+                os.startfile(log_file)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", log_file])
+            else:
+                subprocess.Popen(["xdg-open", log_file])
+        except Exception as e:
+            self._show_notification(f"Could not open log file: {e}")
 
     def _download_whisper_turbo(self, icon=None, item=None):
         """Download Whisper Large v3 Turbo model."""

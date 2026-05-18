@@ -29,14 +29,15 @@ from core.video_utils import get_video_info
 from core.srt_utils import generate_srt
 from core.timeline_utils import generate_timeline_assets
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-    ]
-)
+# Configure logging — only add handlers if not already configured by main.py
+if not logging.root.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+        ]
+    )
 logger = logging.getLogger(__name__)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
@@ -904,6 +905,43 @@ async def delete_font(filename: str):
     except OSError as e:
         raise HTTPException(500, f"Failed to delete font: {e}")
     return {"deleted": True}
+
+
+# ── Logs API ──────────────────────────────────────────────────────────────────
+
+_LOG_FILE = os.path.join(PROJECT_ROOT, "data", "own_app.log")
+
+
+@app.get("/api/logs")
+async def get_logs(lines: int = 200):
+    """Return the tail of the application log file.
+
+    Query params:
+      lines — number of lines from the end (default 200, -1 for all).
+    """
+    if not os.path.isfile(_LOG_FILE):
+        return {"log": "(no log file found)", "path": _LOG_FILE}
+
+    try:
+        with open(_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+
+        if lines == -1:
+            selected = all_lines
+        else:
+            selected = all_lines[-lines:]
+
+        return {"log": "".join(selected), "total_lines": len(all_lines), "path": _LOG_FILE}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to read log file: {e}")
+
+
+@app.get("/api/logs/download")
+async def download_log():
+    """Download the full log file."""
+    if not os.path.isfile(_LOG_FILE):
+        raise HTTPException(404, "Log file not found")
+    return FileResponse(_LOG_FILE, filename="own_app.log", media_type="text/plain")
 
 
 # ── Mount static files (after all routes) ─────────────────────────────────────

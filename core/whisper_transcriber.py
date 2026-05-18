@@ -96,13 +96,30 @@ async def transcribe_whisper(
         # Prompt to ensure accuracy and no translation
         initial_prompt = "Transcribe the audio exactly as spoken in the original language."
 
+        # Check if VAD model asset is available (may be missing in bundled app)
+        use_vad = True
+        try:
+            from faster_whisper.utils import get_assets_path
+            vad_model_path = os.path.join(get_assets_path(), "silero_vad_v6.onnx")
+            if not os.path.isfile(vad_model_path):
+                logger.warning(
+                    f"[WHISPER] VAD model not found at {vad_model_path}. "
+                    "Disabling vad_filter (transcription will still work)."
+                )
+                use_vad = False
+            else:
+                logger.info(f"[WHISPER] VAD model found: {vad_model_path}")
+        except Exception as e:
+            logger.warning(f"[WHISPER] Could not check VAD model: {e}. Disabling vad_filter.")
+            use_vad = False
+
         segments, info = model.transcribe(
             wav_path,
             language=effective_language,
             word_timestamps=True,
             initial_prompt=initial_prompt,
-            beam_size=5,       # High accuracy
-            vad_filter=True    # Speed up by skipping silence
+            beam_size=5,           # High accuracy
+            vad_filter=use_vad,    # Speed up by skipping silence (if available)
         )
         
         logger.info(f"[WHISPER] Detected language: {info.language} (prob={info.language_probability:.2f})")

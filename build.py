@@ -40,6 +40,7 @@ def run_nuitka():
         "--include-package=customtkinter",
         "--include-package=win10toast",
         "--include-package=playwright",
+        "--include-package=onnxruntime",
 
         # ── Data directories to bundle ────────────────────────────────────
         "--include-data-dir=web=web",
@@ -51,9 +52,13 @@ def run_nuitka():
         "--include-data-files=logo.ico=logo.ico",
         "--include-data-files=logo.png=logo.png",
 
+        # ── Package data (non-Python files needed at runtime) ─────────────
+        "--include-package-data=customtkinter",
+        "--include-package-data=faster_whisper",   # silero_vad_v6.onnx for VAD
+        "--include-package-data=onnxruntime",       # runtime provider data
+
         # ── Nuitka plugins ────────────────────────────────────────────────
         "--enable-plugin=tk-inter",
-        "--include-package-data=customtkinter",
     ]
 
     # Add resources folder if it exists
@@ -106,6 +111,7 @@ def _post_build_checks():
         "playwright-browsers": "Playwright Chromium browser",
         "fonts": "Fonts directory",
         "logo.ico": "Application icon",
+        "faster_whisper/assets/silero_vad_v6.onnx": "Silero VAD model (transcription)",
     }
 
     print("-- Post-build checks --")
