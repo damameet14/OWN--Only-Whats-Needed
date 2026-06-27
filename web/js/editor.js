@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSrtDownload();
     initTranscription();
     initTransliteration();
+    initReplaceAllContent();
     loadPresets();
 });
 
@@ -523,7 +524,216 @@ function initFullTextEditing() {
         populateSegments(subtitleTrack.segments);
         preview?.setTrack(subtitleTrack);
         timeline?.setData(subtitleTrack, project.video_duration, project.id);
+        
+        // Update Replace All word count tracker
+        updateFulltextWordCount();
+        
         autoSave();
+    });
+}
+
+function updateFulltextWordCount() {
+    const countEl = document.getElementById('fulltext-word-count');
+    if (countEl && subtitleTrack && subtitleTrack.segments) {
+        let count = 0;
+        for (const seg of subtitleTrack.segments) {
+            if (seg.words) {
+                for (const w of seg.words) {
+                    if (w.word && w.word.replace(/[^\p{L}\p{N}]/gu, '').length > 0) {
+                        count++;
+                    }
+                }
+            }
+        }
+        countEl.textContent = count;
+    }
+}
+
+function getTokenization(text) {
+    const rawTokens = text.trim() ? text.trim().split(/\s+/) : [];
+    const tokens = [];
+    let count = 0;
+    for (const t of rawTokens) {
+        if (!t) continue;
+        const clean = t.replace(/[^\p{L}\p{N}]/gu, '');
+        if (clean.length > 0) {
+            count++;
+            tokens.push({ raw: t, isWord: true, seq: count });
+        } else {
+            tokens.push({ raw: t, isWord: false, seq: null });
+        }
+    }
+    return { tokens, count };
+}
+
+function initReplaceAllContent() {
+    const btnReplaceAll = document.getElementById('btn-replace-all');
+    const panel = document.getElementById('replace-all-panel');
+    const btnClose = document.getElementById('replace-all-close');
+    const textarea = document.getElementById('replace-all-textarea');
+    const targetCountEl = document.getElementById('replace-target-count');
+    const currentCountEl = document.getElementById('replace-current-count');
+    const chkSequence = document.getElementById('replace-show-sequence');
+    const previewArea = document.getElementById('replace-sequence-preview');
+    const btnConfirm = document.getElementById('btn-confirm-replace');
+    const errMsg = document.getElementById('replace-error-msg');
+    
+    let originalText = "";
+    let targetWordCount = 0;
+    
+    if (!btnReplaceAll) return;
+
+    btnReplaceAll.addEventListener('click', () => {
+        if (!subtitleTrack || !subtitleTrack.segments) return;
+        
+        // Populate target count from current track
+        targetWordCount = 0;
+        originalText = "";
+        
+        for (const seg of subtitleTrack.segments) {
+            if (seg.words) {
+                const segText = seg.words.map(w => w.word).join(' ');
+                originalText += (originalText ? '\n' : '') + segText;
+                
+                for (const w of seg.words) {
+                    if (w.word && w.word.replace(/[^\p{L}\p{N}]/gu, '').length > 0) {
+                        targetWordCount++;
+                    }
+                }
+            }
+        }
+        
+        targetCountEl.textContent = targetWordCount;
+        textarea.value = originalText;
+        updateReplacePanelState();
+        
+        // Show panel
+        panel.classList.remove('translate-x-full');
+    });
+    
+    btnClose.addEventListener('click', () => {
+        panel.classList.add('translate-x-full');
+    });
+    
+    const updateReplacePanelState = () => {
+        const text = textarea.value;
+        const { tokens, count } = getTokenization(text);
+        
+        currentCountEl.textContent = count;
+        
+        if (count === targetWordCount) {
+            btnConfirm.disabled = false;
+            errMsg.classList.add('hidden');
+        } else {
+            btnConfirm.disabled = true;
+            errMsg.classList.remove('hidden');
+        }
+        
+        if (chkSequence.checked) {
+            // Render sequence preview
+            const html = tokens.map(t => {
+                if (t.isWord) {
+                    return `<span class="inline-flex items-center gap-1 mx-1"><span class="text-[9px] bg-primary/20 text-primary px-1 rounded-sm border border-primary/30">${t.seq}</span><span class="text-white">${escapeHtml(t.raw)}</span></span>`;
+                } else {
+                    return `<span class="text-slate-400 mx-1">${escapeHtml(t.raw)}</span>`;
+                }
+            }).join('');
+            // To preserve line breaks roughly, we could replace \n with <br>, but we tokenized by \s+, which eats newlines.
+            // Let's re-parse retaining newlines for preview.
+            const lines = text.split('\n');
+            let seq = 0;
+            const linesHtml = lines.map(line => {
+                const words = line.split(/\s+/).filter(w => w);
+                return words.map(w => {
+                    const clean = w.replace(/[^\p{L}\p{N}]/gu, '');
+                    if (clean.length > 0) {
+                        seq++;
+                        return `<span class="inline-flex items-center gap-1 mx-1 my-0.5"><span class="text-[9px] bg-primary/20 text-primary px-1 rounded-sm border border-primary/30 select-none">${seq}</span><span class="text-white">${escapeHtml(w)}</span></span>`;
+                    } else {
+                        return `<span class="text-slate-400 mx-1 my-0.5">${escapeHtml(w)}</span>`;
+                    }
+                }).join('');
+            }).join('<br>');
+            
+            previewArea.innerHTML = linesHtml;
+        }
+    };
+    
+    textarea.addEventListener('input', updateReplacePanelState);
+    
+    chkSequence.addEventListener('change', () => {
+        if (chkSequence.checked) {
+            textarea.classList.add('hidden');
+            previewArea.classList.remove('hidden');
+            updateReplacePanelState();
+        } else {
+            textarea.classList.remove('hidden');
+            previewArea.classList.add('hidden');
+        }
+    });
+    
+    btnConfirm.addEventListener('click', () => {
+        if (!subtitleTrack || !subtitleTrack.segments) return;
+        
+        const { tokens, count } = getTokenization(textarea.value);
+        if (count !== targetWordCount) return; // Should be disabled anyway
+        
+        // Perform replacement
+        let tokenIdx = 0;
+        
+        // We will replace the 'word' of each valid original word with the new token.
+        // What about non-word tokens (pure punctuation) in the new text?
+        // Let's attach non-word tokens to the adjacent words, or just replace the valid words with the new valid words.
+        // However, if we just replace the `w.word` with `tokens[i].raw`, we might lose the pure punctuation tokens typed by the user if they were typed separately.
+        // Let's group all tokens (including preceding/succeeding punctuation) into the `word` property.
+        
+        const mergedTokens = [];
+        let currentMerge = "";
+        for (const t of tokens) {
+            currentMerge += (currentMerge ? " " : "") + t.raw;
+            if (t.isWord) {
+                mergedTokens.push(currentMerge);
+                currentMerge = "";
+            }
+        }
+        // If there's trailing punctuation left in currentMerge, append it to the last word
+        if (currentMerge && mergedTokens.length > 0) {
+            mergedTokens[mergedTokens.length - 1] += " " + currentMerge;
+        }
+        
+        let mergeIdx = 0;
+        
+        for (const seg of subtitleTrack.segments) {
+            if (seg.words) {
+                for (const w of seg.words) {
+                    if (w.word && w.word.replace(/[^\p{L}\p{N}]/gu, '').length > 0) {
+                        if (mergeIdx < mergedTokens.length) {
+                            w.word = mergedTokens[mergeIdx];
+                            mergeIdx++;
+                        }
+                    } else {
+                        // Original word was pure punctuation... We can either keep it or clear it.
+                        // For safety, let's clear it or keep it? If we clear it, the user's new punctuation (already merged) takes over.
+                        w.word = "";
+                    }
+                }
+                // Filter out empty words to clean up
+                seg.words = seg.words.filter(w => w.word !== "");
+            }
+        }
+        
+        // Clean up empty segments if any
+        subtitleTrack.segments = subtitleTrack.segments.filter(seg => seg.words && seg.words.length > 0);
+        
+        populateSegments(subtitleTrack.segments);
+        populateFullText(subtitleTrack.segments);
+        updateFulltextWordCount();
+        preview?.setTrack(subtitleTrack);
+        timeline?.setData(subtitleTrack, project.video_duration, project.id);
+        autoSave();
+        
+        panel.classList.add('translate-x-full');
+        showToast('All content replaced successfully');
     });
 }
 
